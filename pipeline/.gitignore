@@ -1,0 +1,11 @@
+﻿__pycache__/
+*.pyc
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+assets/
+*.pdf
+*.png
+*.jpg
+.env
+access_token
+kaggle.json

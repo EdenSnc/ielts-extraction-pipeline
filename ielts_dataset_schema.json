@@ -1,0 +1,186 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "IELTSMockPlatformDataset",
+  "description": "FINALIZED: flat, relational-DB-friendly schema (one record per section/part, matching Tests/Sections/Questions/VisualAssets tables with FKs). book_type carried on every test record so Academic vs General Training vs Trainer vs Official Guide is queryable without a join back to documents.",
+  "type": "object",
+  "required": ["documents", "tests"],
+  "properties": {
+
+    "documents": {
+      "type": "array",
+      "description": "One entry per source PDF. Established in Phase 0 triage.",
+      "items": {
+        "type": "object",
+        "required": ["document_id", "filename", "book_type", "subfolder", "is_digital", "page_count"],
+        "properties": {
+          "document_id": { "type": "string" },
+          "filename": { "type": "string" },
+          "subfolder": { "type": "string", "description": "Original folder path under IELTS-PDFS, verbatim." },
+          "book_type": {
+            "type": "string",
+            "enum": ["cambridge_academic", "cambridge_general_training", "ielts_trainer", "official_cambridge_guide"],
+            "description": "Required on every test record too (denormalized) so the relational Tests table doesn't need a join back to Documents for this filter."
+          },
+          "is_digital": { "type": "boolean", "description": "True = clean embedded text layer, extracted directly, no OCR." },
+          "existing_ocr_layer_quality": {
+            "type": "string",
+            "enum": ["not_applicable", "good_reusable", "poor_discarded"],
+            "description": "DECISION (this pass): every non-fully-digital file, including 19.pdf and all glyphless-font files, runs the full OCR/layout pipeline regardless of this value. Recorded for audit only, not used for routing logic in v1."
+          },
+          "page_count": { "type": "integer" },
+          "visual_density_estimate": { "type": "string", "enum": ["low", "medium", "high"] },
+          "page_boundary_anomaly_flag": {
+            "type": "boolean",
+            "description": "ADDED: OCR'd PDFs don't always have 1:1 text-page-to-visual-page correspondence (matches the 18gt.pdf irregular per-page word count we found independently). True means a content-length sanity check failed and page-range-based ingestion can't be trusted blindly for this file."
+          }
+        }
+      }
+    },
+
+    "tests": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["test_id", "document_id", "modules"],
+        "properties": {
+          "test_id": { "type": "string" },
+          "document_id": { "type": "string", "description": "FK -> documents.document_id" },
+          "test_label": { "type": "string", "description": "e.g. 'Cambridge IELTS 17, Test 3'" },
+          "modules": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["module_id", "module_type", "sections"],
+              "properties": {
+                "module_id": { "type": "string" },
+                "module_type": { "type": "string", "enum": ["reading", "listening", "writing_task1", "writing_task2"] },
+                "sections": {
+                  "type": "array",
+                  "description": "Reading passage, Listening part, or Writing task prompt.",
+                  "items": {
+                    "type": "object",
+                    "required": ["section_id", "part_number", "questions"],
+                    "properties": {
+                      "section_id": { "type": "string" },
+                      "part_number": { "type": "integer" },
+                      "title": { "type": "string" },
+                      "instructions_text": { "type": "string" },
+                      "passage_or_prompt_text": { "type": ["string", "null"] },
+                      "source_page_range": {
+                        "type": "array", "items": { "type": "integer" }, "minItems": 2, "maxItems": 2
+                      },
+                      "visual_asset_ids": {
+                        "type": "array", "items": { "type": "string" },
+                        "description": "Section-level visuals, e.g. the chart a Writing Task 1 prompt describes."
+                      },
+                      "questions": {
+                        "type": "array",
+                        "items": { "$ref": "#/definitions/Question" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "visual_assets": {
+      "type": "array",
+      "description": "Flat registry of every cropped visual, referenced by id from sections/questions.",
+      "items": { "$ref": "#/definitions/VisualAsset" }
+    }
+  },
+
+  "definitions": {
+
+    "Question": {
+      "type": "object",
+      "required": ["question_id", "question_number_start", "question_type", "prompt_text", "provenance"],
+      "properties": {
+        "question_id": { "type": "string" },
+        "question_type": {
+          "type": "string",
+          "enum": [
+            "multiple_choice", "matching_headings", "matching_information",
+            "true_false_not_given", "yes_no_not_given",
+            "table_completion", "summary_completion", "diagram_label_completion",
+            "flowchart_completion", "short_answer", "sentence_completion",
+            "map_labeling", "writing_task1_report", "writing_task2_essay"
+          ]
+        },
+        "prompt_text": { "type": "string" },
+        "options": {
+          "type": ["array", "null"],
+          "items": { "type": "object", "properties": { "label": {"type": "string"}, "text": {"type": "string"} } }
+        },
+        "correct_answer": { "type": ["string", "array", "null"] },
+        "answer_key_source": {
+          "type": "string",
+          "enum": ["printed_key_found", "inferred_not_verified", "missing"],
+          "description": "Auto-QA in Phase 5 flags anything other than printed_key_found for review."
+        },
+        "visual_asset_ref": { "type": ["string", "null"], "description": "FK -> VisualAsset.asset_id, if this question depends on a figure." },
+        "provenance": { "$ref": "#/definitions/Provenance" },
+        "content_type": {
+          "type": "string",
+          "enum": ["scoreable_question", "instructional_non_scoreable"],
+          "default": "scoreable_question",
+          "description": "ADDED after blueprint review: Trainer and Official Guide books contain pedagogical boxes ('What is Listening Section 2?', vocabulary-matching drills) that are real content but not gradeable IELTS questions. Without this flag they'd either get force-fit into question_type incorrectly or silently dropped."
+        },
+        "question_number_start": { "type": "integer", "description": "ADDED: use instead of a single question_number when a question spans a range." },
+        "question_number_end": { "type": "integer", "description": "Equal to question_number_start for normal single questions. Different when one scoring unit spans multiple numbers, e.g. Cambridge's 'choose TWO letters' format where Q17-18 share one answer pair (key notation '17-18.AE') rather than being two independent questions." }
+      }
+    },
+
+    "VisualAsset": {
+      "type": "object",
+      "required": ["asset_id", "asset_type", "document_id", "page_number", "image_path", "provenance"],
+      "properties": {
+        "asset_id": { "type": "string" },
+        "asset_type": {
+          "type": "string",
+          "enum": ["bar_chart", "line_graph", "pie_chart", "table", "flowchart", "process_diagram", "map", "other_image"]
+        },
+        "document_id": { "type": "string" },
+        "page_number": { "type": "integer", "description": "DEPRECATED alias for pdf_page_index, kept for backward compat during transition. New code should read pdf_page_index." },
+        "pdf_page_index": { "type": "integer", "description": "0-indexed raw PDF page, from PyMuPDF. Matches the field added to per-page extraction in Phase 1." },
+        "printed_page_number": { "type": ["integer", "null"], "description": "The page number actually printed on the page, from PyMuPDF's page-label reader. Null if the page has no visible printed number (e.g. some cover/front-matter pages). This is what a human reviewer or the test-taker UI should show, never pdf_page_index." },
+        "bbox": {
+          "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4,
+          "description": "[x0, y0, x1, y1] in rendered-page pixel coords, for traceability back to the source page."
+        },
+        "image_path": { "type": "string", "description": "Path to cropped, full-resolution image file." },
+        "linked_question_ids": { "type": "array", "items": { "type": "string" } },
+        "structured_data": {
+          "description": "Polymorphic by asset_type. Bar/line/pie: {series:[{label,points:[{x,y}]}]}. Table: {columns:[...], rows:[[...]]}. Flowchart/process_diagram: {steps:[{id,label,next:[id]}]}. Map: {labels:[{text,approx_location}]}. Null if extraction not attempted/failed.",
+          "type": ["object", "null"]
+        },
+        "alt_text": { "type": "string" },
+        "provenance": { "$ref": "#/definitions/Provenance" }
+      }
+    },
+
+    "Provenance": {
+      "type": "object",
+      "required": ["extraction_method", "confidence_score", "human_reviewed"],
+      "properties": {
+        "extraction_method": { "type": "string", "description": "e.g. 'pymupdf_direct', 'paddleocr_v4', 'qwen2.5-vl-7b_transcription'" },
+        "confidence_score": { "type": "number", "minimum": 0, "maximum": 1 },
+        "human_reviewed": { "type": "boolean" },
+        "review_flag_reason": { "type": ["string", "null"], "description": "Why Phase 5 auto-QA queued this item, if it was queued." },
+        "last_modified_by": { "type": "string", "enum": ["pipeline", "human"] },
+        "stripped_watermark_patterns": {
+          "type": "array", "items": { "type": "string" },
+          "description": "ADDED after corpus verification: pirate/redistributor watermarks are injected as real extractable text, not just visual stamps — confirmed 'thudang' on 183/183 pages of one file, '@cambridge_library' on two others. A denoising blocklist pass must strip these from body text before it reaches passage_or_prompt_text/prompt_text, and log what was removed here for auditability."
+        },
+        "ocr_substitution_warnings": {
+          "type": "array", "items": { "type": "string" },
+          "description": "ADDED: confirmed real corruption pattern where diacritics get OCR'd into digits (verified 'kākāpō' -> 'kakap6' in the corpus) with a deceptively high confidence score since every other character is correct. Run a known bad-pattern list (macron vowels -> digits, common ligature failures) as a pass separate from the generic confidence_score, which won't catch this."
+        }
+      }
+    }
+  }
+}

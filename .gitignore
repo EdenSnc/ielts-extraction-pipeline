@@ -1,0 +1,30 @@
+﻿# Raw corpus - never commit these
+*.pdf
+*.PDF
+Cambridge IELTS Academic/
+Cambridge IELTS General Training/
+IELTS Trainer/
+The Official Cambridge Guide to The IELTS/
+
+# Generated images/crops - regenerable, not source
+*.png
+*.jpg
+pipeline/kaggle_output/
+pipeline/layout_output/
+pipeline/smoke_test_output/
+assets/
+
+# Logs and debug dumps - regenerable, not source
+*.log
+*.txt
+!requirements.txt
+
+# Python
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# Secrets - never commit
+.env
+access_token
+kaggle.json
