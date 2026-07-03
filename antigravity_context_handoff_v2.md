@@ -87,7 +87,7 @@ Two confirmed bugs in the previous run were traced and fixed in `pipeline/rebuil
 - All unit and integration tests (31/31 for parser, 6/6 for expander, 6/6 for word limit) pass and are committed to `master`.
 
 ## Current Work & Next Steps
-1. **Bounding-box padding**: Implement 10-20px padding (clamped to page bounds) where asset cropping occurs.
+1. **Bounding-box padding**: DONE (logic implemented + unit-tested; pending a live crop run on the Windows box to regenerate crops/manifest). Added `pipeline/bbox_utils.py` `pad_box(box, page_width, page_height, padding=15)` which expands each side by a fixed 15px, clamped to page bounds, without mutating the input `box`. Wired into `pipeline/crop_assets.py`: `box` stays the canonical detection coords, a new `padded_box` field is recorded in `manifest.json`, and the crop uses `padded_box`. Schema gained a `padded_box` field on `VisualAsset`. Verified by `pipeline/test_bbox_padding.py` (5/5: standard, top-left clamp, bottom-right clamp, `box` immutability, fractional coords) plus a PIL crop smoke test.
 2. **Watermark fuzzy-matching**: Implement fuzzy-matching blocklist for watermarks, gated on appearance frequency across multiple pages.
 3. **Robust VLM JSON extraction wrapper + Pydantic validation**: Partially done — `validate_structured_data` (plain-dict validation, not Pydantic) is now implemented and wired into results via `needs_review`/`review_reason`. Remaining: live verification against freshly regenerated Kaggle results, and (optionally) formalizing with Pydantic models.
 4. **Question-number monotonic sequence check**: 1-40 unbroken sequence check for Phase 5.

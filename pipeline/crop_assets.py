@@ -7,6 +7,8 @@ import os
 import json
 from PIL import Image
 
+from bbox_utils import pad_box
+
 LAYOUT_JSON = r"C:\Users\Admin\Downloads\ALL ielts resources-new\ocr_pipeline\kaggle_output\layout_output\layout_data.json"
 IMAGE_DIR = r"C:\Users\Admin\Downloads\ALL ielts resources-new\ocr_pipeline\dataset_sample\images"
 CROPS_DIR = r"C:\Users\Admin\Documents\IELTS-PDFS\crops"
@@ -38,11 +40,12 @@ for page_item in data:
         if label not in ["figure", "table"]:
             continue
             
-        box = bbox_item["box"] # [x1, y1, x2, y2]
+        box = bbox_item["box"] # [x1, y1, x2, y2] canonical detection coords
         conf = bbox_item["confidence"]
         
-        # Crop
-        cropped_img = img.crop((box[0], box[1], box[2], box[3]))
+        # Crop with a fixed 15px margin, clamped to page bounds. `box` stays canonical.
+        padded_box = pad_box(box, img.width, img.height)
+        cropped_img = img.crop(tuple(padded_box))
         crop_filename = f"page_{page_num}_{label}_{idx}.png"
         crop_path = os.path.join(CROPS_DIR, crop_filename)
         cropped_img.save(crop_path)
@@ -52,6 +55,7 @@ for page_item in data:
             "label": label,
             "confidence": conf,
             "box": box,
+            "padded_box": padded_box,
             "crop_filename": crop_filename
         })
         print(f"Saved crop: {crop_filename} size={cropped_img.size}")

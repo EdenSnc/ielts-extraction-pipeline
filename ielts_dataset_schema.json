@@ -169,7 +169,11 @@
         "printed_page_number": { "type": ["integer", "null"], "description": "The page number actually printed on the page, from PyMuPDF's page-label reader. Null if the page has no visible printed number (e.g. some cover/front-matter pages). This is what a human reviewer or the test-taker UI should show, never pdf_page_index." },
         "bbox": {
           "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4,
-          "description": "[x0, y0, x1, y1] in rendered-page pixel coords, for traceability back to the source page."
+          "description": "[x0, y0, x1, y1] in rendered-page pixel coords, for traceability back to the source page. Canonical model-detected coordinates \u2014 never padded/mutated."
+        },
+        "padded_box": {
+          "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4,
+          "description": "[x0, y0, x1, y1] in rendered-page pixel coords: bbox expanded by a fixed 15px margin on each side and clamped to page bounds. This is the exact region the saved crop image (image_path) represents."
         },
         "image_path": { "type": "string", "description": "Path to cropped, full-resolution image file." },
         "linked_question_ids": { "type": "array", "items": { "type": "string" } },
