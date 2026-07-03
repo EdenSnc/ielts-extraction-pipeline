@@ -82,7 +82,7 @@ Two confirmed bugs in the previous run were traced and fixed in `pipeline/rebuil
 - Page 30 (map): **2 labels** with real single-value locations — `'City Hospital 2007' -> 'Top-Left'`, `'City Hospital 2010' -> 'Bottom-Right'` (no more `"Top-Left | Center | Bottom-Right"` placeholder). `needs_review=False`.
 - Page 19 (table) and Page 52 (bar_chart): `structured_data` present, `needs_review=False`.
 
-Item 6 (VLM structured_data quality) is **complete** — token-truncation and map-placeholder bugs are gone and the validation wrapper confirms no `needs_review` flags on the current corpus sample.
+The VLM JSON extraction wrapper + validation (Next Steps **Item 3**) is **complete** — token-truncation and map-placeholder bugs are gone and the validation wrapper confirms no `needs_review` flags on the current corpus sample.
 
 ### Answer Key and Word Limit Parsing (Fully Resolved & Verified)
 - `answer_key_parser.py` (v3) uses a tokeniser with look-ahead to handle Cambridge two-column split-line format (`<number>\n<answer>`) and `IN EITHER ORDER` pairs.
