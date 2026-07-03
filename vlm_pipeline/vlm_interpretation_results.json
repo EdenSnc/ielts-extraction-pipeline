@@ -16,7 +16,30 @@
           "id": "step_1",
           "label": "Select seeds of different sizes and shapes.",
           "next": [
-            "step_2"
+            {
+              "id": "step_2",
+              "label": "Measure and record the size and shape of each one."
+            }
+          ]
+        },
+        {
+          "id": "step_2",
+          "label": "Decide on the type of seeds to be used.",
+          "next": [
+            {
+              "id": "step_3",
+              "label": "Use a different type of seed for each seed and label it."
+            }
+          ]
+        },
+        {
+          "id": "step_3",
+          "label": "After about 3 weeks, record the plant's growth.",
+          "next": [
+            {
+              "id": "step_4",
+              "label": "Investigate the findings."
+            }
           ]
         }
       ]
@@ -76,12 +99,16 @@
       1188.171875,
       1848.901123046875
     ],
-    "alt_text": "**Alt Text Description:**\n\n**Title: City Hospital 2007**\n\n- **Map Title:** City Hospital 2007\n- **Location:** Ring Road\n- **Description:** The map shows the layout of the City Hospital in 2007. The hospital is located at the center of the map, with Ring Road and City Road intersecting at the hospital's entrance.\n- **Key:** \n  - **Ring Road:** The main road that runs around the hospital.\n  - **City Road:** The secondary road that runs parallel to the hospital.\n  - **Hospital Road:** A secondary road that leads to the hospital.\n  - **Bus Stop:** A bus stop is marked on the map, indicating the presence of public transportation.\n- **Parking:** \n  - **Staff Car Park:** A designated area for staff cars.\n  - **Public Car Park:** A designated area for public cars.\n\n**Title: City Hospital 2010**\n\n- **Map Title:** City Hospital 2010\n- **Location:** Ring Road\n- **Description:** The map shows the layout of the City Hospital in 2010. The hospital is located at the center of the map, with Ring Road and City Road intersecting at the hospital's entrance.\n- **Key:** \n  - **Ring Road:** The main road that runs around the hospital.\n  - **City Road:** The secondary road that runs parallel to the hospital.\n  - **Hospital Road:** A secondary road that leads to the hospital.\n  - **Bus Stop:** A bus stop is marked on the map, indicating the presence of public transportation.\n- **Parking:** \n  - **Staff Car Park:** A designated area for staff cars.\n  - **Public Car Park:** A designated area for public cars.\n\n**Alt Text Description:**\n\n**Title: City Hospital 2007**\n\n- **Map Title:** City Hospital 2007\n- **Location:** Ring Road\n- **Description:** The map shows the layout of the City Hospital in 2007. The hospital is located at the center of the map, with Ring Road and City Road intersecting at the hospital's entrance.\n- **Key:** \n  - **Ring Road:** The main road that runs around the hospital.\n  - **City Road:** The secondary road that runs parallel to the hospital.\n  - **Hospital Road:** A secondary road that leads to the hospital.\n  - **Bus Stop:** A bus stop",
+    "alt_text": "**Alt Text Description:**\n\n**Title: City Hospital 2007**\n\n- **Map Title:** City Hospital 2007\n- **Location:** Ring Road\n- **Description:** The map shows the layout of the City Hospital in 2007. The hospital is located at the center of the map, with Ring Road and City Road intersecting at the hospital's entrance.\n- **Key:** \n  - **Ring Road:** The main road that runs around the hospital.\n  - **City Road:** The secondary road that runs parallel to the hospital.\n  - **Hospital Road:** A secondary road that leads to the hospital.\n  - **Bus Stop:** A bus stop is marked on the map, indicating the presence of public transportation.\n- **Parking:** \n  - **Staff Car Park:** A designated area for staff cars.\n  - **Public Car Park:** A designated area for public cars.\n\n**Title: City Hospital 2010**\n\n- **Map Title:** City Hospital 2010\n- **Location:** Ring Road\n- **Description:** The map shows the layout of the City Hospital in 2010. The hospital is located at the center of the map, with Ring Road and City Road intersecting at the hospital's entrance.\n- **Key:** \n  - **Ring Road:** The main road that runs around the hospital.\n  - **City Road:** The secondary road that runs parallel to the hospital.\n  - **Hospital Road:** A secondary road that leads to the hospital.\n  - **Bus Stop:** A bus stop is marked on the map, indicating the presence of public transportation.\n- **Parking:** \n  - **Staff Car Park:** A designated area for staff cars.\n  - **Public Car Park:** A designated area for public cars.\n\n**Alt Text Description:**\n\n**Title: City Hospital 2007**\n\n- **Map Title:** City Hospital 2007\n- **Location:** Ring Road\n- **Description:** The map shows the layout of the City Hospital in 2007. The hospital is located at the center of the map, with Ring Road and City Road intersecting at the hospital's entrance.\n- **Key:** \n  - **Ring Road:** The main road that runs around the hospital.\n  - **City Road:** The secondary road that runs parallel to the hospital.\n  - **Hospital Road:** A secondary road that leads to the hospital.\n  - **Bus Stop:** A bus stop is marked on the map, indicating the presence of public transportation.\n- **Parking:** \n  - **Staff Car Park:** A designated area for staff cars.\n  - **Public Car Park:** A designated area for public cars.\n\n**Title: City Hospital 2010**\n\n- **Map Title:** City Hospital 2010\n- **Location:** Ring Road\n- **Description:** The map shows the layout of the City Hospital in 2010. The hospital is located at the center of the map, with Ring Road and City Road intersecting at the hospital's entrance.\n- **Key:** \n  - **Ring Road:** The main road that runs around the hospital.\n  - **City Road:** The secondary road that runs parallel to the hospital.\n  - **Hospital Road:** A secondary road that leads to the hospital.\n  - **Bus Stop:** A bus stop is marked on the map, indicating the presence of public transportation.\n- **Parking:** \n  - **Staff Car Park:** A designated area for staff cars.\n  - **Public Car Park:** A designated area for public cars.",
     "structured_data": {
       "labels": [
         {
           "text": "City Hospital 2007",
-          "approx_location": "Top-Left | Center | Bottom-Right"
+          "approx_location": "Top-Left"
+        },
+        {
+          "text": "City Hospital 2010",
+          "approx_location": "Bottom-Right"
         }
       ]
     },
