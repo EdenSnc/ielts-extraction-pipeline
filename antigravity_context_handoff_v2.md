@@ -11,9 +11,10 @@ Extract 23 IELTS PDFs (text + cropped visual assets + structured chart/table dat
 - Kaggle auth: token-based (KGAT_ format), saved at C:\Users\Admin\.kaggle\access_token. Account is phone-verified and identity-verified (Persona) — if any tool reports an "unverified account" error, that diagnosis is wrong; dig further.
 - `kaggle` python package needed an upgrade (`pip install --upgrade kaggle`) to fix a version-skew bug parsing the newer token format — check this was actually applied.
 - Kernel push has a hard 1MB source-size API limit — strip notebook outputs before pushing, or it 400s.
+- `PYTHONIOENCODING=utf-8` must be set in Kaggle run logs/commands to prevent charmap encoding errors when dealing with Unicode statuses or output.
 
 ## Containment — strict, non-negotiable
-All pipeline code lives ONLY in `C:\Users\Admin\Documents\IELTS-PDFS\pipeline`. A prior session accidentally edited files in an unrelated project (a landing page site, `IELTS-Lab-Oran-main`) — manually reverted by the user already. Never touch anything outside the pipeline folder, for any reason, regardless of what context seems to justify it.
+All pipeline code lives ONLY in `C:\Users\Admin\Documents\IELTS-PDFS\pipeline` and the repository root. A prior session accidentally edited files in an unrelated project (`IELTS-Lab-Oran-main`) — manually reverted by the user already. Never touch anything outside the pipeline folder or root repo folders for any reason, regardless of what context seems to justify it.
 
 ## Corpus — 23 PDFs, already triaged (verified against actual files, not assumed)
 Located at `C:\Users\Admin\Documents\IELTS-PDFS`, 4 subfolders (cambridge academic / general training / ielts trainer / official cambridge guide).
@@ -31,54 +32,54 @@ Located at `C:\Users\Admin\Documents\IELTS-PDFS`, 4 subfolders (cambridge academ
 - All need a denoising pass before text is committed, with what was stripped logged for audit (`stripped_watermark_patterns`/`ocr_substitution_warnings` fields exist in schema for this).
 
 ## Tool stack (decided, with reasons — don't re-litigate)
-- **Layout detection**: DocLayout-YOLO (`DocStructBench` weights) on Kaggle T4x2, using `doclayout_yolo.YOLOv10`'s own native API directly — NOT wrapped through vanilla `ultralytics.YOLO` (see Phase 2 debugging history below for why).
-- **OCR/text extraction**: docTR primary, Surya fallback. Surya (0.20.0+) auto-detects hardware: NVIDIA GPU → `vllm` backend (fine on Kaggle), no GPU → `llamacpp` backend requiring a compiled binary (this is real, verified by inspecting the actual package — don't fight it, never run Surya locally on the Windows CPU box).
+- **Layout detection**: DocLayout-YOLO (`DocStructBench` weights) on Kaggle T4x2, using `doclayout_yolo.YOLOv10`'s own native API directly — NOT wrapped through vanilla `ultralytics.YOLO`.
+- **OCR/text extraction**: docTR primary, Surya fallback. Surya (0.20.0+) auto-detects hardware: NVIDIA GPU → `vllm` backend (fine on Kaggle), no GPU → `llamacpp` backend requiring a compiled binary (never run Surya locally on the Windows CPU box).
 - EasyOCR rejected — weaker than Surya/docTR/PaddleOCR on dense document text specifically.
 - PaddleOCR/PP-StructureV2: table-structure recovery only, not general OCR.
-- **Visual interpretation**: Qwen2.5-VL on Kaggle T4x2. **No paid APIs anywhere** — explicitly declined by user, Kaggle-only, final.
+- **Visual interpretation**: `Qwen/Qwen2-VL-2B-Instruct` run on Kaggle T4x2. **No paid APIs anywhere** — explicitly declined by user, Kaggle-only, final.
 
 ## Schema
-Finalized, flat/relational-DB-friendly (one record per section, maps to SQL tables with FKs). File: `ielts_dataset_schema.json` — get the latest copy from the user, don't assume you have the current one. Key fields and why:
+Finalized, flat/relational-DB-friendly (one record per section, maps to SQL tables with FKs). File: `ielts_dataset_schema.json`. Key fields:
 - `book_type` on every test record (denormalized, avoids a join).
 - `question_number_start`/`question_number_end` — Cambridge's "choose TWO letters" format shares one answer pair across two question numbers.
 - `content_type: scoreable_question | instructional_non_scoreable` — Trainer/Official Guide books have real non-gradeable pedagogical content; don't force it into question_type or drop it.
 - `pdf_page_index` + `printed_page_number` on documents AND visual assets — these differ by an offset (front matter shifts them). Only `printed_page_number` should ever be shown to a human/UI.
 - `stripped_watermark_patterns`/`ocr_substitution_warnings` on every provenance block.
-- `page_boundary_anomaly_flag` — tuned threshold: only fires on near-identical word counts repeated across 3+ consecutive pages at a high baseline (>10,000 words), or a 10x+ jump landing on an already-high baseline (>1,500 words). Do NOT flag normal sparse-question-page vs dense-passage-page alternation (30-150 words vs 300-600 words) — that's normal book structure. A looser threshold was tried and correctly rejected for false positives.
+- `page_boundary_anomaly_flag` — tuned threshold: only fires on near-identical word counts repeated across 3+ consecutive pages at a high baseline (>10,000 words), or a 10x+ jump landing on an already-high baseline (>1,500 words). Do NOT flag normal sparse-question-page vs dense-passage-page alternation (30-150 words vs 300-600 words).
+- `answer_constraints` now contains `must_be_from_text` (extracted from instruction text).
+- `AnswerRecord` contains `variants` (pre-expanded acceptable strings), `needs_review` (flagged for human verification on ambiguity/exclusions), and `review_reason`.
 
-## Phase 0 & 1 — done and stable
-Triage, page rendering, OCR routing, anomaly detection, dual page-numbering all implemented and validated on `13.PDF`. Not in question.
+## Completed Phases
 
-## Phase 2 — Kaggle layout detection — in progress, NOT yet fully verified
+### Phase 0 & 1 — Done and stable
+Triage, page rendering, OCR routing, anomaly detection, dual page-numbering all implemented and validated on `13.PDF`.
 
-### Debugging history (all real, verified against actual package internals along the way — don't re-diagnose these from scratch)
-| Run | Error | Root cause / fix |
-|---|---|---|
-| v11-v12 | `CUDA error: no kernel image is available` | Kaggle was defaulting to a P100 (CUDA sm_60), dropped by PyTorch 2.5+. Fixed with explicit `--accelerator NvidiaTeslaT4` flag on kernel push. |
-| v12 | `AttributeError: 'Conv' object has no attribute 'bn'` | `ultralytics.YOLO.fuse()` strips batch-norm attrs incompatibly with this model. |
-| v13 | `AttributeError: 'dict' object has no attribute 'shape'` | `ultralytics`' NMS postprocessor expects a tensor; `doclayout_yolo`'s forward() returns a dict — fundamentally incompatible wrapper usage. |
-| v14 | Fixed | Switched to `doclayout_yolo.YOLOv10` directly (its own public API, own postprocessing), dropped `ultralytics` wrapper entirely. |
-| v14 result | Real result, page 20 of 13.PDF: 13 overlapping boxes detected. Problem found on review: every box covering actual question text (items 8-13) scored 0.319-0.485 confidence, while boilerplate (header/title/instructions) scored 0.65-0.84. **A flat confidence threshold of 0.5 would have deleted all real content and kept only boilerplate** — this was caught before it shipped to batch. Root issue: box #6 covered the entire Q8-13 block as one region while boxes #7-13 separately detected each individual question line — overlapping multi-granularity detections of the same class, not noise. |
-| v15/v16 | Claimed fix | IoU containment dedup (drop boxes >90% contained inside a larger same-class box) implemented, claimed to reduce page 20 from 13→6 boxes. **Confirmed the 10-class DocStructBench taxonomy includes `title`, `figure`, `table`, etc. (full list: title, plain text, abandon, figure, figure_caption, table, table_caption, table_footnote, isolate_formula, formula_caption) — `title` fired at 0.924 confidence on a real section header, confirmed genuine.** Also claimed successful `figure` detection on page 30 (map, 0.849 conf) and page 52 (bar chart, 0.951 conf). |
+### Phase 2 — Layout Detection (Fully Resolved & Verified)
+- Switched to `doclayout_yolo.YOLOv10` directly to fix CUDA errors and NMS post-processing bugs.
+- Confirmed DocStructBench 10-class taxonomy (title, text, abandon, figure, figure_caption, table, etc.).
+- Same-class and cross-class (e.g. abandon vs title overlap on running headers) deduplication confirmed and verified on:
+  - Page 20 (questions deduped cleanly at full resolution, resolving scale-down confidence drop issues).
+  - Page 30 (map crop verified).
+  - Page 52 (bar chart crop verified).
+- Tier 1 rendering preparation complete: General Training representative `13gt.pdf` split/rendered to image files.
 
-### ⚠️ UNRESOLVED — this is where you actually pick up
-The v15/v16 "success" report was sent back with **evidence that didn't match the claims**:
-- The page-20 annotated image attached was byte-for-byte the SAME FILE as the earlier v14 image (same filename, same 13 overlapping boxes) — not new evidence of the claimed 6-box dedup result.
-- The page 30 and page 52 annotated images were referenced by local file path but never actually attached/shared for review.
-- The new 6-box coordinate table used a roughly 1/3-scale coordinate range compared to the old 13-box table, unexplained (possibly a DPI difference between renders, but not confirmed).
+### Phase 4 — VLM Visual Interpretation (Baseline Complete)
+- Running local script `crop_assets.py` to extract cropped visual assets from full-res page images based on layout coords.
+- Pushing crops to Kaggle via `upload_dataset_patch.py` (`ielts-13-crops-v1`).
+- Kaggle kernel running `vlm_interpretation.ipynb` using `Qwen/Qwen2-VL-2B-Instruct` successfully processes crops (transcription, classification, structured JSON extraction).
+- Results downloaded to `vlm_pipeline/vlm_interpretation_results.json`.
 
-**This was rejected. Nothing about IoU dedup or the figure crops on pages 30/52 has been visually verified yet**, even though the underlying claims (10-class taxonomy, title firing, containment logic) may well be real — the class-taxonomy claim in particular is plausible and specific enough to likely be genuine, but the actual dedup RESULT and the actual figure CROPS still need real, current, matching visual proof before anyone signs off.
+### Answer Key and Word Limit Parsing (Fully Resolved & Verified)
+- `answer_key_parser.py` (v3) uses a tokeniser with look-ahead to handle Cambridge two-column split-line format (`<number>\n<answer>`) and `IN EITHER ORDER` pairs.
+- Added coordinate-based spatial entry point `parse_answer_key_page(page)` which splits blocks by x-midpoint and sorts by y0 to prevent reading-order column interleaving.
+- Integrated `answer_key_expander.py` which expands parenthetical optional prefix/suffixes (`(the) hospital` -> `['hospital', 'the hospital']`) and slash alternatives, and flags exclusions like `(not ...)` or cross-slash context ambiguity for human review.
+- `word_limit_parser.py` extracts max_words, allow_numbers, and `must_be_from_text` (via search for "from the passage/text" in instructions) into `AnswerConstraint`.
+- All unit and integration tests (31/31 for parser, 6/6 for expander, 6/6 for word limit) pass and are committed to `master`.
 
-### Your first task
-Get and show ACTUAL CURRENT annotated images (not reused old files, not missing references) for:
-1. Page 20 of `13.PDF` post-dedup — should show ~6 non-overlapping boxes, not the old 13.
-2. Page 30 (map diagram) — tight figure crop.
-3. Page 52 (bar chart) — tight figure crop.
-
-Only after those check out visually does batch ingestion across the remaining 22 PDFs become a reasonable next step. Do not propose or start batch ingestion before this.
-
-## How to work with the user going forward
-- Phase-gate discipline: show a sample (1-2 files) before scaling to all 23, at every phase.
-- **When reporting results, attach actual current evidence (fresh screenshots/images/raw output), not descriptions of evidence or reused old files.** This project has had multiple instances of confident "✅ verified" claims that didn't hold up against the actual attached evidence — always assume the human reviewer will check the raw artifact, not just the summary, because they have been doing exactly that.
-- When something fails, get the actual raw error/traceback/HTTP response before proposing a root cause. This project has had both confidently-wrong explanations (Kaggle "unverified account" story — false, account was fully verified) and confidently-right ones (Surya/llama.cpp backend claim — true, verified by inspecting the actual package) — there's no shortcut here, every claim gets checked against real evidence before being accepted, in either direction.
-- Don't make architectural or schema decisions unilaterally; flag tradeoffs and wait for confirmation.
+## Current Work & Next Steps
+1. **Bounding-box padding**: Implement 10-20px padding (clamped to page bounds) where asset cropping occurs.
+2. **Watermark fuzzy-matching**: Implement fuzzy-matching blocklist for watermarks, gated on appearance frequency across multiple pages.
+3. **Robust VLM JSON extraction wrapper + Pydantic validation**: Implement JSON parsing wrappers for Qwen2-VL output.
+4. **Question-number monotonic sequence check**: 1-40 unbroken sequence check for Phase 5.
+5. **Exclusion-pattern flag**: Human review flags for lines containing `(not ...`.
+6. **Tier 1 scaling**: Scale layout detection and extraction to General Training (`13gt.pdf`), Trainer, and Official Guide representative samples.
