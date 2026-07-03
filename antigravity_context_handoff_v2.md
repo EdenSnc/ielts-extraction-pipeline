@@ -10,6 +10,7 @@ Extract 23 IELTS PDFs (text + cropped visual assets + structured chart/table dat
 - ALL layout detection, OCR at scale, and VLM inference runs on Kaggle (free tier: T4x2 GPU). Never attempt these locally as a batch engine.
 - Kaggle auth: token-based (KGAT_ format), saved at C:\Users\Admin\.kaggle\access_token. Account is phone-verified and identity-verified (Persona) — if any tool reports an "unverified account" error, that diagnosis is wrong; dig further.
 - `kaggle` python package needed an upgrade (`pip install --upgrade kaggle`) to fix a version-skew bug parsing the newer token format — check this was actually applied.
+- Both polling scripts (`pipeline/poll_kernel.py` and `pipeline/poll_vlm_kernel.py`) now invoke Kaggle via the explicit `KAGGLE_CLI` executable path + explicit `env` (`KAGGLE_KEY` from `C:\Users\Admin\.kaggle\access_token`, `KAGGLE_USERNAME='senoucielamine'`) rather than a bare `kaggle` shell command, to avoid PATH/version-skew failures.
 - Kernel push has a hard 1MB source-size API limit — strip notebook outputs before pushing, or it 400s.
 - `PYTHONIOENCODING=utf-8` must be set in Kaggle run logs/commands to prevent charmap encoding errors when dealing with Unicode statuses or output.
 
