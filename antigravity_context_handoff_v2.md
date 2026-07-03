@@ -10,6 +10,7 @@ Extract 23 IELTS PDFs (text + cropped visual assets + structured chart/table dat
 - ALL layout detection, OCR at scale, and VLM inference runs on Kaggle (free tier: T4x2 GPU). Never attempt these locally as a batch engine.
 - Kaggle auth: token-based (KGAT_ format), saved at C:\Users\Admin\.kaggle\access_token. Account is phone-verified and identity-verified (Persona) — if any tool reports an "unverified account" error, that diagnosis is wrong; dig further.
 - `kaggle` python package needed an upgrade (`pip install --upgrade kaggle`) to fix a version-skew bug parsing the newer token format — check this was actually applied.
+- Both polling scripts (`pipeline/poll_kernel.py` and `pipeline/poll_vlm_kernel.py`) now invoke Kaggle via the explicit `KAGGLE_CLI` executable path + explicit `env` (`KAGGLE_KEY` from `C:\Users\Admin\.kaggle\access_token`, `KAGGLE_USERNAME='senoucielamine'`) rather than a bare `kaggle` shell command, to avoid PATH/version-skew failures.
 - Kernel push has a hard 1MB source-size API limit — strip notebook outputs before pushing, or it 400s.
 - `PYTHONIOENCODING=utf-8` must be set in Kaggle run logs/commands to prevent charmap encoding errors when dealing with Unicode statuses or output.
 
@@ -69,6 +70,15 @@ Triage, page rendering, OCR routing, anomaly detection, dual page-numbering all 
 - Kaggle kernel running `vlm_interpretation.ipynb` using `Qwen/Qwen2-VL-2B-Instruct` successfully processes crops (transcription, classification, structured JSON extraction).
 - Results downloaded to `vlm_pipeline/vlm_interpretation_results.json`.
 
+#### VLM structured_data quality fixes (generator changes committed; results NOT yet regenerated)
+Two confirmed bugs in the previous run were traced and fixed in `pipeline/rebuild_vlm_nb.py`, and `vlm_pipeline/vlm_interpretation.ipynb` was regenerated from it:
+- **Token truncation** (page 15 flowchart returned only 1 step): `max_new_tokens` raised 512 -> 1536.
+- **Map prompt placeholder echo** (page 30 `approx_location` = `"Top-Left | Center | Bottom-Right"`): the prompt's example JSON *was* the placeholder, so the model copied it. Rewrote the map `struct_prompt` to use a single concrete example (`"Center"`) plus an explicit enum of the only allowed location values.
+- **Validation wrapper**: added `validate_structured_data(asset_type, structured_data, alt_text)` in the notebook; every result now carries `needs_review` + `review_reason` and prints a WARNING when a known failure mode is detected (empty/placeholder steps, `"|"`/out-of-enum map locations, empty/placeholder chart series).
+- Added `pipeline/check_vlm_results.py` verification helper (reads the Windows results path).
+
+**State / not yet verified**: only the generator + notebook changed. The committed `vlm_pipeline/vlm_interpretation_results.json` on master is STILL the old buggy output (page 15 = 1 step, page 30 = placeholder). Regenerating it requires re-running the Kaggle kernel (`senoucielamine/ielts-13-vlm-interpretation`) via `poll_vlm_kernel.py` and pushing the new JSON. The pass/fail gate (page 15 > 1 step, page 30 single-word locations, `needs_review` flags on genuinely-incomplete assets) is NOT yet confirmed and will be verified with `check_vlm_results.py` once fresh results land.
+
 ### Answer Key and Word Limit Parsing (Fully Resolved & Verified)
 - `answer_key_parser.py` (v3) uses a tokeniser with look-ahead to handle Cambridge two-column split-line format (`<number>\n<answer>`) and `IN EITHER ORDER` pairs.
 - Added coordinate-based spatial entry point `parse_answer_key_page(page)` which splits blocks by x-midpoint and sorts by y0 to prevent reading-order column interleaving.
@@ -79,7 +89,7 @@ Triage, page rendering, OCR routing, anomaly detection, dual page-numbering all 
 ## Current Work & Next Steps
 1. **Bounding-box padding**: Implement 10-20px padding (clamped to page bounds) where asset cropping occurs.
 2. **Watermark fuzzy-matching**: Implement fuzzy-matching blocklist for watermarks, gated on appearance frequency across multiple pages.
-3. **Robust VLM JSON extraction wrapper + Pydantic validation**: Implement JSON parsing wrappers for Qwen2-VL output.
+3. **Robust VLM JSON extraction wrapper + Pydantic validation**: Partially done — `validate_structured_data` (plain-dict validation, not Pydantic) is now implemented and wired into results via `needs_review`/`review_reason`. Remaining: live verification against freshly regenerated Kaggle results, and (optionally) formalizing with Pydantic models.
 4. **Question-number monotonic sequence check**: 1-40 unbroken sequence check for Phase 5.
 5. **Exclusion-pattern flag**: Human review flags for lines containing `(not ...`.
 6. **Tier 1 scaling**: Scale layout detection and extraction to General Training (`13gt.pdf`), Trainer, and Official Guide representative samples.

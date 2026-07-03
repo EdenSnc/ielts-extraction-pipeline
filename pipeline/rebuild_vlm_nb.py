@@ -86,7 +86,7 @@ def run_vlm(image_path, prompt):
     inputs = inputs.to("cuda")
     
     with torch.no_grad():
-        generated_ids = model.generate(**inputs, max_new_tokens=512)
+        generated_ids = model.generate(**inputs, max_new_tokens=1536)
         generated_ids_trimmed = [
             out_ids[len(in_ids):] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
         ]
@@ -94,6 +94,41 @@ def run_vlm(image_path, prompt):
             generated_ids_trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False
         )[0]
     return output_text.strip()
+
+def validate_structured_data(asset_type, structured_data, alt_text=""):
+    """Returns (is_valid, reason) — flags known failure modes for human review."""
+    if not isinstance(structured_data, dict):
+        return False, "structured_data is not a dict"
+    if asset_type in ("flowchart", "process_diagram"):
+        steps = structured_data.get("steps", [])
+        if not steps:
+            return False, "steps list is empty"
+        if len(steps) == 1 and "step" in alt_text.lower() and alt_text.count("step") > 2:
+            return False, f"only 1 step extracted but alt_text mentions multiple steps"
+        for step in steps:
+            if step.get("label", "").strip() in ("", "Step Description"):
+                return False, f"step {step.get('id')} has placeholder label"
+    elif asset_type == "map":
+        labels = structured_data.get("labels", [])
+        if not labels:
+            return False, "labels list is empty"
+        valid_locations = {
+            "top-left", "top-center", "top-right",
+            "center-left", "center", "center-right",
+            "bottom-left", "bottom-center", "bottom-right"
+        }
+        for lbl in labels:
+            loc = lbl.get("approx_location", "")
+            if "|" in loc or loc.lower() not in valid_locations:
+                return False, f"invalid approx_location value: {repr(loc)}"
+    elif asset_type in ("bar_chart", "line_graph", "pie_chart"):
+        series = structured_data.get("series", [])
+        if not series:
+            return False, "series list is empty"
+        for s in series:
+            if s.get("label", "").strip() in ("", "Series Name"):
+                return False, f"series has placeholder label"
+    return True, "ok"
 
 results = []
 
@@ -185,9 +220,12 @@ for item in crops:
             
     elif asset_type == "map":
         struct_prompt = (
-            "Extract labels from this map. Return a JSON object matching this structure: "
-            '{"labels": [{"text": "Label name", "approx_location": "Top-Left | Center | Bottom-Right"}]}. '
-            "Provide only valid JSON. Do not wrap in markdown code blocks."
+            "Extract every labelled location from this map. "
+            "Return a JSON object with this structure: "
+            '{"labels": [{"text": "City Hospital", "approx_location": "Center"}]}. '
+            "For approx_location use ONLY one of these exact values: "
+            "Top-Left, Top-Center, Top-Right, Center-Left, Center, Center-Right, Bottom-Left, Bottom-Center, Bottom-Right. "
+            "Include ALL visible labels. Provide only valid JSON. Do not wrap in markdown code blocks."
         )
         raw_struct = run_vlm(img_path, struct_prompt)
         try:
@@ -197,6 +235,10 @@ for item in crops:
             print(f"Error parsing map JSON: {e}. Raw: {raw_struct}")
             structured_data = {"raw_text": raw_struct}
 
+    is_valid, validation_reason = validate_structured_data(asset_type, structured_data, alt_text)
+    if not is_valid:
+        print(f"  WARNING: structured_data validation failed: {validation_reason}")
+
     results.append({
         "page": item["page"],
         "label": yolo_label,
@@ -204,7 +246,9 @@ for item in crops:
         "box": item["box"],
         "alt_text": alt_text,
         "structured_data": structured_data,
-        "crop_filename": crop_file
+        "crop_filename": crop_file,
+        "needs_review": not is_valid,
+        "review_reason": validation_reason if not is_valid else None,
     })
 
 # Save results

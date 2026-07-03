@@ -17,6 +17,12 @@ KAGGLE_SLUG = "senoucielamine/ielts-13-vlm-interpretation"
 OUTPUT_DIR = r"C:\Users\Admin\Downloads\ALL ielts resources-new\ocr_pipeline\kaggle_output\vlm_output"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
+env = os.environ.copy()
+env['KAGGLE_KEY'] = open(r'C:\Users\Admin\.kaggle\access_token').read().strip()
+env['KAGGLE_USERNAME'] = 'senoucielamine'
+
+KAGGLE_CLI = r'C:\Users\Admin\AppData\Roaming\Python\Python311\Scripts\kaggle.exe'
+
 # Patch open to enforce utf-8 when running downloaded files
 original_open = builtins.open
 def patched_open(*args, **kwargs):
@@ -26,14 +32,14 @@ def patched_open(*args, **kwargs):
 builtins.open = patched_open
 
 def run_cmd(cmd):
-    res = subprocess.run(cmd, shell=True, capture_output=True, text=False)
+    res = subprocess.run(cmd, capture_output=True, text=False, env=env)
     stdout = res.stdout.decode('utf-8', errors='replace') if res.stdout else ""
     stderr = res.stderr.decode('utf-8', errors='replace') if res.stderr else ""
     return res.returncode, stdout, stderr
 
 print(f"Polling {KAGGLE_SLUG}...")
 while True:
-    code, out, err = run_cmd(f"kaggle kernels status {KAGGLE_SLUG}")
+    code, out, err = run_cmd([KAGGLE_CLI, "kernels", "status", KAGGLE_SLUG])
     if code != 0:
         print(f"Error checking status: {err}")
         time.sleep(15)
@@ -53,7 +59,7 @@ if "complete" in out.lower():
         except:
             pass
             
-    code, out, err = run_cmd(f"kaggle kernels output {KAGGLE_SLUG} -p \"{OUTPUT_DIR}\"")
+    code, out, err = run_cmd([KAGGLE_CLI, "kernels", "output", KAGGLE_SLUG, "-p", OUTPUT_DIR])
     if code == 0:
         print(f"Downloaded output to {OUTPUT_DIR}")
         # Show contents of files in download dir
