@@ -105,6 +105,7 @@
           "type": "string",
           "enum": [
             "multiple_choice", "matching_headings", "matching_information",
+            "matching_sentence_endings",
             "true_false_not_given", "yes_no_not_given",
             "table_completion", "summary_completion", "diagram_label_completion",
             "flowchart_completion", "short_answer", "sentence_completion",
@@ -112,6 +113,11 @@
           ]
         },
         "prompt_text": { "type": "string" },
+        "required_selection_count": {
+          "type": "integer",
+          "default": 1,
+          "description": "ADDED after UI-mechanics review: distinguishes radio-button (select 1) from checkbox (select 2-3) multiple_choice questions. Not cosmetic — affects both the correct UI widget and scoring (a select-2 question needs exactly 2 correct selections, not 1). Only meaningful when question_type is multiple_choice; default 1."
+        },
         "options": {
           "type": ["array", "null"],
           "items": { "type": "object", "properties": { "label": {"type": "string"}, "text": {"type": "string"} } }
@@ -131,7 +137,20 @@
           "description": "ADDED after blueprint review: Trainer and Official Guide books contain pedagogical boxes ('What is Listening Section 2?', vocabulary-matching drills) that are real content but not gradeable IELTS questions. Without this flag they'd either get force-fit into question_type incorrectly or silently dropped."
         },
         "question_number_start": { "type": "integer", "description": "ADDED: use instead of a single question_number when a question spans a range." },
-        "question_number_end": { "type": "integer", "description": "Equal to question_number_start for normal single questions. Different when one scoring unit spans multiple numbers, e.g. Cambridge's 'choose TWO letters' format where Q17-18 share one answer pair (key notation '17-18.AE') rather than being two independent questions." }
+        "question_number_end": { "type": "integer", "description": "Equal to question_number_start for normal single questions. Different when one scoring unit spans multiple numbers, e.g. Cambridge's 'choose TWO letters' format where Q17-18 share one answer pair (key notation '17-18.AE') rather than being two independent questions." },
+        "answer_constraints": {
+          "type": ["object", "null"],
+          "description": "ADDED after UI-mechanics review: parsed word-limit instruction (e.g. 'NO MORE THAN TWO WORDS') for completion-type questions only (short_answer, summary_completion, sentence_completion, table_completion, flowchart_completion, diagram_label_completion). Denormalized onto each Question rather than stored once on Section, because a single section commonly has multiple instruction blocks governing different question sub-ranges. Null for multiple_choice/TFNG/YNNG/matching_* types — never attempt to parse a constraint for those. If null on a completion-type question, that should trigger a review flag (real Cambridge tests essentially always specify a limit for these types, so a miss is more likely a parse failure than a genuine absence).",
+          "properties": {
+            "max_words": { "type": "integer", "description": "0 means 'A NUMBER' with no word component allowed." },
+            "allow_numbers": { "type": "boolean" },
+            "raw_instruction_text": { "type": "string", "description": "The exact matched instruction clause, kept for auditability." }
+          }
+        },
+        "min_word_count": {
+          "type": ["integer", "null"],
+          "description": "ADDED: Writing task minimum word count (e.g. 150 or 250 from 'Write at least N words'). Structurally the OPPOSITE constraint from answer_constraints (minimum vs maximum) — only meaningful for writing_task1_report/writing_task2_essay, never conflate with answer_constraints on completion questions."
+        }
       }
     },
 
@@ -155,7 +174,7 @@
         "image_path": { "type": "string", "description": "Path to cropped, full-resolution image file." },
         "linked_question_ids": { "type": "array", "items": { "type": "string" } },
         "structured_data": {
-          "description": "Polymorphic by asset_type. Bar/line/pie: {series:[{label,points:[{x,y}]}]}. Table: {columns:[...], rows:[[...]]}. Flowchart/process_diagram: {steps:[{id,label,next:[id]}]}. Map: {labels:[{text,approx_location}]}. Null if extraction not attempted/failed.",
+          "description": "Polymorphic by asset_type. Bar/line/pie: {series:[{label,points:[{x,y}]}]}. Table: {columns:[...], rows:[[...]]}. Flowchart/process_diagram: {steps:[{id,label,next:[id]}]}. Map/diagram_label_completion: {labels:[{blank_id, answer_text, target_bbox:[x,y,w,h]}]} where target_bbox is in image-relative percentage coordinates (0-1 range, not pixels, so it stays valid if the image is ever re-rendered at a different resolution) — REQUIRED to be real coordinates, not a natural-language location description, since this is what a drag-drop UI renders the drop target from. Null if extraction not attempted/failed.",
           "type": ["object", "null"]
         },
         "alt_text": { "type": "string" },

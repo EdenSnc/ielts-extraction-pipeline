@@ -65,7 +65,7 @@ def is_adjacent_or_overlapping(caption_box, visual_box, max_dist=120):
     return False
 
 all_results = []
-pages = [20, 30, 52]
+pages = [15, 19, 20, 30, 52]
 
 for pg in pages:
     print(f"\\nProcessing Page {pg}...")
