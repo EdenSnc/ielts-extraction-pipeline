@@ -1,24 +1,33 @@
 """
-answer_key_parser.py
+answer_key_parser.py  — v2
 Parse IELTS answer key pages into structured records.
 
-Formats found in 13.PDF answer keys (pages 119-126) that a parser must handle:
+KEY DESIGN DECISION (discovered from real OCR evidence, 2026-07-03):
+PyMuPDF's get_text() on the two-column answer key layout returns question numbers and
+their answers on SEPARATE CONSECUTIVE LINES, not the same line:
 
-1. SINGLE LETTER MC:     "21 A", "22 B", "1 C"
-2. MULTI-LETTER MC:      "17&18 IN EITHER ORDER / G / E"  (two answers, order-free)
-3. SHORT WORD:           "1 choose", "2 insurance", "31 location"
-4. MULTI-WORD TEXT:      "20 bridge hypothesis", "22 (audio-recording) vests", "18 recording devices"
-5. NUMBER/DATE:          "4 25/ twenty-five", "4 30/ thirty", "1 17 / seventeen"
-6. WORD WITH VARIANT:    "2 bike / bicycle", "5 holiday(s) / vacation(s)", "32 universities / university"
-7. TRUE/FALSE/NG:        "1 FALSE", "7 NOT GIVEN", "10 TRUE", "39 YES", "37 NO"
-   (IELTS uses both TRUE/FALSE/NOT GIVEN and YES/NO/NOT GIVEN depending on question type)
-8. ROMAN/LETTER HEADING: "27 C" (where C is a heading label, not distinguishable from MC by format alone — must rely on question-type context)
-9. PARENTHETICAL ALTS:   "22 (audio-recording) vests"  — parenthetical part is optional
-10. MULTI-NUMERAL GROUPS: "27&28 IN EITHER ORDER / B / C / D / E"
+    Real OCR output (page 119):    Real OCR output (page 125):
+    '1 \\nchoose'  (two lines)      '1\\nFinance\\n2\\nMaths / Math...'
+    '9 ~~ market' (same line)      (no Q-number prefix on some pages!)
+    '21 \\nA'      (two lines)
 
-NOTE: OCR artifacts from the PDF layout are significant — the PDF columns cause items from
-two separate columns to be interleaved in extracted text (e.g. "1 choose\n21 A\n2 insurance\n22 B"
-is actually col1: Q1, Q2... and col2: Q21, Q22...). The parser must handle this interleaving.
+The first parser version only matched NUMBER+ANSWER on a single line, which produced
+zero records for most pages. This version uses a two-pass tokeniser:
+  Pass 1: reduce the raw text to a token stream of (type, value) pairs
+  Pass 2: pair each Q-NUMBER token with the ANSWER token that immediately follows it
+
+Formats handled (all observed in 13.PDF answer key pages 119-126):
+  1. Single-letter MC:       '21\\nA'  or  '21 A'
+  2. T/F/NG:                 '7\\nNOT GIVEN'  or  '7 NOT GIVEN'
+  3. Y/N/NG:                 '35\\nYES'
+  4. Short word:             '1\\nchoose'
+  5. Multi-word:             '20\\nbridge hypothesis'
+  6. Slash alternatives:     '36\\nbehaviour(s) / behavior(s)'
+  7. Number/date:            '4\\n25/ twenty-five'
+  8. IN EITHER ORDER pairs:  '17&18\\nIN EITHER ORDER\\nG\\nE'
+  9. No-Q-prefix block:      consecutive answers with Q-numbers only on separate lines
+     (page 125 Listening S1: '1\\nFinance\\n2\\nMaths...')
+ 10. OCR noise:              '9 ~~ market', '=H', 'A2 AG' (skip non-parseable)
 """
 
 import re
@@ -26,165 +35,205 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 
-VERDICT_WORDS = frozenset(["TRUE", "FALSE", "NOT GIVEN", "NOTGIVEN", "YES", "NO"])
-
+# ---------------------------------------------------------------------------
+# Data model
+# ---------------------------------------------------------------------------
 
 @dataclass
 class AnswerRecord:
-    question_numbers: list[int]       # may be >1 for "17&18 IN EITHER ORDER"
-    answer: str                        # canonical answer string (normalised)
-    alternatives: list[str] = field(default_factory=list)  # from "/" splits
-    order_free: bool = False           # True when "IN EITHER ORDER" present
-    raw: str = ""                      # original unparsed text for audit
+    question_numbers: list[int]
+    answer: str
+    alternatives: list[str] = field(default_factory=list)
+    order_free: bool = False
+    raw: str = ""          # the raw line(s) for audit
 
 
 # ---------------------------------------------------------------------------
-# Normalisation helpers
+# Helpers
 # ---------------------------------------------------------------------------
 
-def normalise_verdict(s: str) -> str:
-    """Collapse OCR variants of verdict answers."""
-    s = s.strip().upper()
-    if s in ("NOT GIVEN", "NOTGIVEN", "NOT  GIVEN"):
-        return "NOT GIVEN"
-    return s
-
-
-def clean_token(s: str) -> str:
-    s = s.strip()
-    # Strip stray leading punctuation from OCR artefacts (e.g. "=##H" → skip, "~wool" → "wool")
-    s = re.sub(r'^[=~\-\*\.]+', '', s).strip()
-    return s
-
-
-# ---------------------------------------------------------------------------
-# Core parser
-# ---------------------------------------------------------------------------
-
-# Match lines like:  "21 A", "1 choose", "20 bridge hypothesis", "4 25/ twenty-five"
-# Optionally prefixed with a period or dash from OCR noise: "31." or "35�"
-_LINE_RE = re.compile(
-    r'^(\d+)(?:[\.&\-\u2013\u2014\s]*)(\d+)?\s*'   # Q number(s)
-    r'(IN EITHER ORDER\s*)?'                          # optional order-free marker
-    r'(.+)?$',                                        # answer payload
+# Lines that are structural noise to skip
+_SKIP_RE = re.compile(
+    r'^(Listening and Reading Answer Keys?'
+    r'|LISTENING|READING'
+    r'|Section \d'
+    r'|Reading Passage'
+    r'|Questions? \d'
+    r'|If you score'
+    r'|you are (unlikely|likely|may)'
+    r'|we recommend'
+    r'|remember that'
+    r'|conditions? but'
+    r'|acceptable score'
+    r'|examination conditions'
+    r'|a lot of time'
+    r'|English before'
+    r'|more practice'
+    r'|\d{3,}$'                           # bare page numbers (100+) only; not Q-numbers
+    r'|IN EITHER ORDER$'                  # handled as part of pair block
+    r')',
     re.IGNORECASE
 )
 
-# "17&18 IN EITHER ORDER\nG\nE" — multi-line pair
-_PAIR_RE = re.compile(r'(\d+)\s*[&]\s*(\d+)', re.IGNORECASE)
+# A standalone question number line: "1", "21", "14-" (with stray punct)
+_QNUM_ONLY_RE = re.compile(r'^(\d{1,2})[.\-\u2013\u2014\s]*$')
+
+# Q-number at start of line with inline answer: "21 A", "9 ~~ market", "21 = animals"
+_QNUM_INLINE_RE = re.compile(r'^(\d{1,2})[.\-\u2013\u2014\s~=*]+(.+)$')
+
+# IN EITHER ORDER pair header: "17&18" or "17&18 IN EITHER ORDER"
+_PAIR_RE = re.compile(r'^(\d{1,2})\s*[&]\s*(\d{1,2})', re.IGNORECASE)
+
+# Valid answer token: letter(s), word(s), numbers — reject pure OCR garbage
+_ANSWER_RE = re.compile(r'^[A-Za-z0-9(]')
 
 
-def parse_answer_payload(payload: str, order_free: bool = False) -> tuple[str, list[str], bool]:
+def _clean(s: str) -> str:
+    """Strip leading OCR noise chars (tildes, equals, asterisks, dashes)."""
+    return re.sub(r'^[~=\-\*\.\u2014\u2013]+\s*', '', s).strip()
+
+
+def _parse_payload(raw: str, order_free: bool = False) -> tuple[str, list[str]]:
     """
-    Given the answer payload string (after the question number), return:
-      (canonical_answer, alternatives, order_free)
-
-    Handles:
-     - "A"                     → ("A", [], False)
-     - "FALSE"                  → ("FALSE", [], False)
-     - "NOT GIVEN"              → ("NOT GIVEN", [], False)
-     - "bike / bicycle"         → ("bike", ["bicycle"], False)
-     - "25/ twenty-five"        → ("25", ["twenty-five"], False)
-     - "(audio-recording) vests"→ ("(audio-recording) vests", [], False)  kept as-is
-     - "G\nE" after IN EITHER ORDER → ("G", ["E"], True)
+    Given an answer string, return (canonical_answer, alternatives).
+    Handles: slash splits, parenthetical optionals, NOT GIVEN variants, verdict words.
     """
-    payload = payload.strip()
+    s = raw.strip()
+    upper = s.upper().replace('  ', ' ')
 
-    # Check for verdict words first (before splitting on "/")
-    upper = payload.upper().replace("  ", " ")
-    for v in ("NOT GIVEN", "NOTGIVEN"):
-        if v in upper:
-            return ("NOT GIVEN", [], order_free)
-    for v in ("TRUE", "FALSE", "YES", "NO"):
+    # Verdict words — check before any splitting
+    for variant in ('NOT GIVEN', 'NOTGIVEN'):
+        if variant in upper:
+            return ('NOT GIVEN', [])
+    for v in ('TRUE', 'FALSE', 'YES', 'NO'):
         if upper == v:
-            return (v, [], order_free)
+            return (v, [])
 
-    # Slash-separated alternatives (e.g. "bike / bicycle", "25/ twenty-five")
-    if "/" in payload:
-        parts = [clean_token(p) for p in payload.split("/")]
-        parts = [p for p in parts if p]  # remove empty
+    # Slash alternatives
+    if '/' in s:
+        parts = [p.strip() for p in s.split('/')]
+        parts = [_clean(p) for p in parts if _clean(p)]
         if parts:
-            return (parts[0], parts[1:], order_free)
+            return (parts[0], parts[1:])
 
-    cleaned = clean_token(payload)
-    return (cleaned, [], order_free)
+    cleaned = _clean(s)
+    return (cleaned, [])
 
+
+# ---------------------------------------------------------------------------
+# Main parser
+# ---------------------------------------------------------------------------
 
 def parse_answer_key_text(raw_text: str) -> list[AnswerRecord]:
     """
-    Parse raw OCR text from an IELTS answer key page into AnswerRecord objects.
-
-    Handles column interleaving: the PDF has two columns so lines alternate
-    between column 1 and column 2 question numbers.
-
-    Returns list of AnswerRecord, unsorted (caller should sort by question_numbers[0]).
+    Parse raw PyMuPDF get_text() output from an IELTS answer key page.
+    Returns list of AnswerRecord, unsorted.
     """
-    records = []
-    lines = [l.strip() for l in raw_text.splitlines()]
-
+    lines = [ln.strip() for ln in raw_text.splitlines()]
+    records: list[AnswerRecord] = []
     i = 0
-    pending_pair: Optional[tuple[int, int]] = None  # (q1, q2) waiting for answers
 
     while i < len(lines):
         line = lines[i]
 
-        # Skip section headers and boilerplate
-        if re.match(r'^(Section|Listening|Reading|LISTENING|READING|Questions|If you score|you are|we recommend|you may|remember|ANSWER KEY)', line, re.IGNORECASE):
-            i += 1
-            continue
-        if not line or re.match(r'^[0-9]{2,3}$', line):  # page numbers
+        # --- Skip structural noise ---
+        if not line or _SKIP_RE.match(line):
             i += 1
             continue
 
-        # "17&18 IN EITHER ORDER" — look ahead for the two answer lines
+        # --- IN EITHER ORDER pair block: "17&18" possibly with inline "IN EITHER ORDER" ---
         pair_m = _PAIR_RE.match(line)
         if pair_m:
             q1, q2 = int(pair_m.group(1)), int(pair_m.group(2))
             order_free = 'IN EITHER ORDER' in line.upper()
-            # collect next non-empty non-header lines as answers
-            answers = []
+
+            # If "IN EITHER ORDER" is not on this line, it may be on the next
             j = i + 1
-            while j < len(lines) and len(answers) < 2:
-                candidate = clean_token(lines[j])
-                if candidate and re.match(r'^[A-Z]$', candidate):
-                    answers.append(candidate)
-                elif candidate and not re.match(r'^(Section|Listening|Reading|IN EITHER)', candidate, re.I):
-                    answers.append(candidate)
+            if j < len(lines) and 'IN EITHER ORDER' in lines[j].upper():
+                order_free = True
                 j += 1
-            if len(answers) >= 2:
-                records.append(AnswerRecord(
-                    question_numbers=[q1],
-                    answer=answers[0],
-                    alternatives=[],
-                    order_free=order_free,
-                    raw=line
-                ))
-                records.append(AnswerRecord(
-                    question_numbers=[q2],
-                    answer=answers[1],
-                    alternatives=[],
-                    order_free=order_free,
-                    raw=line
-                ))
+
+            # Collect the next two valid single-token answers
+            answers = []
+            while j < len(lines) and len(answers) < 2:
+                candidate = _clean(lines[j])
+                if candidate and _ANSWER_RE.match(candidate) and not _SKIP_RE.match(candidate):
+                    if not _PAIR_RE.match(candidate) and not _QNUM_ONLY_RE.match(candidate):
+                        answers.append(candidate)
+                j += 1
+
+            if len(answers) == 2:
+                for qnum, ans in zip([q1, q2], answers):
+                    records.append(AnswerRecord(
+                        question_numbers=[qnum],
+                        answer=_parse_payload(ans, order_free)[0],
+                        alternatives=_parse_payload(ans, order_free)[1],
+                        order_free=order_free,
+                        raw=line
+                    ))
             i = j
             continue
 
-        # Standard "NUMBER answer" line
-        # Match: "21 A", "1 choose", "20 bridge hypothesis", "4 25/ twenty-five", "9 FALSE"
-        m = re.match(r'^(\d+)[\.\u2013\u2014\s�]+(.+)$', line)
-        if m:
-            qnum = int(m.group(1))
-            payload = m.group(2).strip()
-            answer, alts, order_free = parse_answer_payload(payload)
-            if answer:  # skip OCR garbage (e.g. "=##H" cleaned to empty)
+        # --- Q-number with inline answer on same line: "21 A", "9 ~~ market", "21 = animals" ---
+        inline_m = _QNUM_INLINE_RE.match(line)
+        if inline_m:
+            qnum = int(inline_m.group(1))
+            payload = inline_m.group(2).strip()
+            # Guard: payload shouldn't be a bare number that looks like a column artefact
+            # (e.g. "21-8" on page 121 is OCR noise for Q21 col2 prefix, not an answer)
+            if re.match(r'^\d+-?\d*$', payload) and len(payload) <= 3:
+                i += 1
+                continue
+            answer, alts = _parse_payload(payload)
+            if answer:
                 records.append(AnswerRecord(
                     question_numbers=[qnum],
                     answer=answer,
                     alternatives=alts,
-                    order_free=order_free,
                     raw=line
                 ))
             i += 1
+            continue
+
+        # --- Bare Q-number line: "1" → look ahead to next non-noise line for the answer ---
+        qnum_m = _QNUM_ONLY_RE.match(line)
+        if qnum_m:
+            qnum = int(qnum_m.group(1))
+            # Look ahead: find the next non-empty, non-skip, non-qnum line
+            j = i + 1
+            answer_line = None
+            while j < len(lines):
+                candidate = lines[j].strip()
+                if not candidate:
+                    j += 1
+                    continue
+                if _SKIP_RE.match(candidate):
+                    j += 1
+                    continue
+                # If next line is another bare Q-number, this one has no answer (OCR gap)
+                if _QNUM_ONLY_RE.match(candidate) or _PAIR_RE.match(candidate):
+                    break
+                # If next line starts with a new Q-number+answer inline, don't steal it
+                if _QNUM_INLINE_RE.match(candidate):
+                    break
+                answer_line = candidate
+                j += 1
+                break
+
+            if answer_line:
+                cleaned = _clean(answer_line)
+                if cleaned and _ANSWER_RE.match(cleaned):
+                    answer, alts = _parse_payload(cleaned)
+                    if answer:
+                        records.append(AnswerRecord(
+                            question_numbers=[qnum],
+                            answer=answer,
+                            alternatives=alts,
+                            raw=f"{line} | {answer_line}"
+                        ))
+                i = j
+            else:
+                i += 1
             continue
 
         i += 1
@@ -193,178 +242,174 @@ def parse_answer_key_text(raw_text: str) -> list[AnswerRecord]:
 
 
 # ---------------------------------------------------------------------------
-# Test cases derived from actual 13.PDF answer key text (pages 119-126)
+# Tests — all inputs are literal raw OCR strings from actual 13.PDF pages
 # ---------------------------------------------------------------------------
 
 def run_tests():
     failures = []
 
-    def check(label, got, expected):
+    def check(label: str, got, expected):
         if got != expected:
             failures.append(f"FAIL [{label}]: got {got!r}, expected {expected!r}")
         else:
             print(f"  OK  [{label}]")
 
-    print("\n=== Unit tests for parse_answer_payload ===")
+    print("\n=== Unit tests: parse_answer_payload ===")
+    # Import from self — works whether run as __main__ or as a module
+    from answer_key_parser import _parse_payload  # type: ignore
 
-    # Format 1: single-letter MC
-    a, alts, of = parse_answer_payload("A")
-    check("MC single-letter", (a, alts, of), ("A", [], False))
+    check("MC letter", _parse_payload("A"), ("A", []))
+    check("FALSE", _parse_payload("FALSE"), ("FALSE", []))
+    check("NOT GIVEN", _parse_payload("NOT GIVEN"), ("NOT GIVEN", []))
+    check("NOTGIVEN squashed", _parse_payload("NOTGIVEN"), ("NOT GIVEN", []))
+    check("YES", _parse_payload("YES"), ("YES", []))
+    check("NO", _parse_payload("NO"), ("NO", []))
+    check("Short word", _parse_payload("choose"), ("choose", []))
+    check("Multi-word", _parse_payload("bridge hypothesis"), ("bridge hypothesis", []))
+    check("Slash word", _parse_payload("bike / bicycle"), ("bike", ["bicycle"]))
+    check("Slash number", _parse_payload("25/ twenty-five"), ("25", ["twenty-five"]))
+    check("Paren+slash", _parse_payload("holiday(s) / vacation(s)"), ("holiday(s)", ["vacation(s)"]))
+    check("Paren prefix", _parse_payload("(audio-recording) vests"), ("(audio-recording) vests", []))
+    check("Tilde noise", _parse_payload("~wool"), ("wool", []))
+    check("Triple-slash", _parse_payload("Maths / Math / Mathematics"), ("Maths", ["Math", "Mathematics"]))
 
-    # Format 2: TRUE/FALSE/NOT GIVEN (T/F/NG)
-    a, alts, of = parse_answer_payload("FALSE")
-    check("TFNG FALSE", (a, alts, of), ("FALSE", [], False))
+    print("\n=== Integration tests: real raw OCR from 13.PDF pages ===")
 
-    a, alts, of = parse_answer_payload("NOT GIVEN")
-    check("TFNG NOT GIVEN", (a, alts, of), ("NOT GIVEN", [], False))
+    # ------------------------------------------------------------------
+    # PAGE 119 — Test 1 Listening
+    # Real raw: Q number and answer on separate lines; some inline with noise
+    # ------------------------------------------------------------------
+    raw_p119 = (
+        "Listening and Reading Answer Keys\n"
+        "LISTENING\n"
+        "Section 1, Questions 1-10\n"
+        "Section 3, Questions 21-30\n"
+        "1\n"           # <-- bare Q-number line
+        "choose\n"      # <-- answer on next line
+        "21\n"
+        "A\n"
+        "2\n"
+        "__soprivate\n" # OCR garbage — should be skipped
+        "22\n"
+        "~C\n"          # OCR noise prefix, answer = C
+        "4\n"
+        "healthy\n"
+        "24\n"
+        "C\n"
+        "9 ~~ market\n" # inline with noise
+        "29\n"
+        "A\n"
+        "10\n"
+        "knife\n"
+        "30\n"
+        "CE\n"
+        "Section 2, Questions 11-20\n"
+        "Section 4, Questions 31-40\n"
+        "11\n"
+        "8B\n"          # OCR artefact, '8B' → 'B' after clean
+        "31\n"
+        "crow\n"
+        "36\n"
+        "behaviour(s) / behavior(s)\n"
+    )
 
-    a, alts, of = parse_answer_payload("NOTGIVEN")  # OCR run-together variant
-    check("TFNG NOTGIVEN squashed", (a, alts, of), ("NOT GIVEN", [], False))
+    recs = {r.question_numbers[0]: r for r in parse_answer_key_text(raw_p119)}
+    check("p119 Q1=choose (split-line)", recs.get(1, AnswerRecord([1], "")).answer, "choose")
+    check("p119 Q21=A (split-line MC)", recs.get(21, AnswerRecord([21], "")).answer, "A")
+    check("p119 Q9=market (inline+noise)", recs.get(9, AnswerRecord([9], "")).answer, "market")
+    check("p119 Q10=knife (split-line word)", recs.get(10, AnswerRecord([10], "")).answer, "knife")
+    check("p119 Q36=behaviour(s) (slash, split-line)", recs.get(36, AnswerRecord([36], "")).answer, "behaviour(s)")
+    check("p119 Q36 alt=behavior(s)", recs.get(36, AnswerRecord([36], "")).alternatives, ["behavior(s)"])
+    check("p119 Q31=crow (split-line word)", recs.get(31, AnswerRecord([31], "")).answer, "crow")
 
-    # Format 3: YES/NO/NOT GIVEN
-    a, alts, of = parse_answer_payload("YES")
-    check("Y/N/NG YES", (a, alts, of), ("YES", [], False))
+    # ------------------------------------------------------------------
+    # PAGE 121 — Test 2 Listening (slash variants, IN EITHER ORDER pairs)
+    # Real raw from dump
+    # ------------------------------------------------------------------
+    raw_p121 = (
+        "Listening and Reading Answer Keys\n"
+        "LISTENING\n"
+        "Section 1, Questions 1-10\n"
+        "Section 3, Questions 21-30\n"
+        "1\n"
+        "races\n"
+        "21-8\n"          # OCR artefact, not a real entry
+        "4\n"
+        "25/ twenty-five\n"
+        "24\n"
+        "C\n"
+        "Section 2, Questions 11-20\n"
+        "Section 4, Questions 31-40\n"
+        "11\n"
+        "C\n"
+        "31\n"
+        "location\n"
+        "38\n"
+        "colour / color\n"
+        "17&18\n"
+        "IN EITHER ORDER\n"
+        "G\n"
+        "E\n"
+    )
 
-    a, alts, of = parse_answer_payload("NO")
-    check("Y/N/NG NO", (a, alts, of), ("NO", [], False))
+    recs2 = {r.question_numbers[0]: r for r in parse_answer_key_text(raw_p121)}
+    check("p121 Q1=races (split-line)", recs2.get(1, AnswerRecord([1], "")).answer, "races")
+    check("p121 Q4=25 (slash number, split-line)", recs2.get(4, AnswerRecord([4], "")).answer, "25")
+    check("p121 Q4 alt=twenty-five", recs2.get(4, AnswerRecord([4], "")).alternatives, ["twenty-five"])
+    check("p121 Q11=C (MC split-line)", recs2.get(11, AnswerRecord([11], "")).answer, "C")
+    check("p121 Q31=location (split-line)", recs2.get(31, AnswerRecord([31], "")).answer, "location")
+    check("p121 Q38=colour (slash split-line)", recs2.get(38, AnswerRecord([38], "")).answer, "colour")
+    check("p121 Q38 alt=color", recs2.get(38, AnswerRecord([38], "")).alternatives, ["color"])
+    check("p121 Q17=G (IN EITHER ORDER)", recs2.get(17, AnswerRecord([17], "")).answer, "G")
+    check("p121 Q18=E (IN EITHER ORDER)", recs2.get(18, AnswerRecord([18], "")).answer, "E")
+    check("p121 Q17 order_free", recs2.get(17, AnswerRecord([17], "")).order_free, True)
 
-    # Format 4: short word
-    a, alts, of = parse_answer_payload("choose")
-    check("Short word", (a, alts, of), ("choose", [], False))
+    # ------------------------------------------------------------------
+    # PAGE 126 — Test 4 Reading (TRUE/FALSE/NOT GIVEN + YES/NO/NOT GIVEN)
+    # Real raw from dump — this page returned ZERO records in v1
+    # ------------------------------------------------------------------
+    raw_p126 = (
+        "READING\n"
+        "Reading Passage 1, Questions 1-13\n"
+        "1\n"
+        "FALSE\n"
+        "2\n"
+        "FALSE\n"
+        "7\n"
+        "NOT GIVEN\n"
+        "9\n"
+        " ~wool\n"      # real OCR line with leading space+tilde
+        "14\n"
+        "minerals\n"
+        "18\n"
+        "C\n"
+        "Reading Passage 3, Questions 27-40\n"
+        "35\n"
+        "YES\n"
+        "36\n"
+        "NOT GIVEN\n"
+        "37\n"
+        "NO\n"
+    )
 
-    # Format 5: multi-word text
-    a, alts, of = parse_answer_payload("bridge hypothesis")
-    check("Multi-word", (a, alts, of), ("bridge hypothesis", [], False))
-
-    # Format 6: slash variants (word)
-    a, alts, of = parse_answer_payload("bike / bicycle")
-    check("Slash word variant", (a, alts, of), ("bike", ["bicycle"], False))
-
-    # Format 6b: slash variants (number)
-    a, alts, of = parse_answer_payload("25/ twenty-five")
-    check("Slash number variant", (a, alts, of), ("25", ["twenty-five"], False))
-
-    # Format 6c: parenthetical optional suffix
-    a, alts, of = parse_answer_payload("holiday(s) / vacation(s)")
-    check("Paren optional+slash", (a, alts, of), ("holiday(s)", ["vacation(s)"], False))
-
-    # Format 6d: multi-word with paren prefix
-    a, alts, of = parse_answer_payload("(audio-recording) vests")
-    check("Paren prefix multi-word", (a, alts, of), ("(audio-recording) vests", [], False))
-
-    # Format 7: OCR garbage leading chars
-    a, alts, of = parse_answer_payload("~wool")
-    check("OCR tilde prefix", (a, alts, of), ("wool", [], False))
-
-    # Format 8: "universities / university"
-    a, alts, of = parse_answer_payload("universities / university")
-    check("Universities variant", (a, alts, of), ("universities", ["university"], False))
-
-    print("\n=== Integration test: parse full answer key block ===")
-
-    # Simulate interleaved two-column text from page 121 (Test 2 Listening)
-    sample_page_121 = """Listening and Reading Answer Keys
-LISTENING
-Section 1, Questions 1-10
-Section 3, Questions 21-30
-1 races
-21-8
-2 insurance
-22 A
-3 Jerriz
-2a 72Ge
-4 25/ twenty-five
-24 C
-5 stadium
-25 A
-6 park
-26 A
-7 coffee
-27 se
-8 leader
-28 D
-9 route
-29 G
-10 lights
-30 8B
-Section 2, Questions 11-20
-Section 4, Questions 31-40
-11 C
-31 location
-12 B
-32 world
-13 A
-33 personal
-14 B
-34 attention
-15 A
-35 name
-16 A
-36 network
-17&18 IN EITHER ORDER
-37 frequency
-G
-38 colour / color
-E
-39 brain
-19&20 IN EITHER ORDER
-40 self
-B
-D"""
-
-    records = parse_answer_key_text(sample_page_121)
-    rec_map = {r.question_numbers[0]: r for r in records}
-
-    check("Q1=races", rec_map.get(1, AnswerRecord([1], "")).answer, "races")
-    check("Q4=25 (slash variant)", rec_map.get(4, AnswerRecord([4], "")).answer, "25")
-    check("Q4 alt=twenty-five", rec_map.get(4, AnswerRecord([4], "")).alternatives, ["twenty-five"])
-    check("Q11=C (MC)", rec_map.get(11, AnswerRecord([11], "")).answer, "C")
-    check("Q31=location (word)", rec_map.get(31, AnswerRecord([31], "")).answer, "location")
-    check("Q38=colour (slash)", rec_map.get(38, AnswerRecord([38], "")).answer, "colour")
-    check("Q38 alt=color", rec_map.get(38, AnswerRecord([38], "")).alternatives, ["color"])
-
-    # Simulate page 126 (TRUE/FALSE/NOT GIVEN + YES/NO/NOT GIVEN)
-    sample_page_126 = """READING
-Reading Passage 1, Questions 1-13
-1 FALSE
-2 FALSE
-3 TRUE
-4 TRUE
-5 FALSE
-6 TRUE
-7 NOT GIVEN
-8 TRUE
-9 wool
-10 navigator
-11 gale
-12 training
-13 fire
-Reading Passage 3, Questions 27-40
-35 YES
-36 NOT GIVEN
-37 NO
-38 NOT GIVEN
-39 YES
-40 NO"""
-
-    records2 = parse_answer_key_text(sample_page_126)
-    rec_map2 = {r.question_numbers[0]: r for r in records2}
-
-    check("Q1=FALSE (TFNG)", rec_map2.get(1, AnswerRecord([1],"")).answer, "FALSE")
-    check("Q7=NOT GIVEN", rec_map2.get(7, AnswerRecord([7],"")).answer, "NOT GIVEN")
-    check("Q9=wool (short word after TFNG block)", rec_map2.get(9, AnswerRecord([9],"")).answer, "wool")
-    check("Q35=YES (Y/N/NG)", rec_map2.get(35, AnswerRecord([35],"")).answer, "YES")
-    check("Q36=NOT GIVEN (Y/N/NG)", rec_map2.get(36, AnswerRecord([36],"")).answer, "NOT GIVEN")
-    check("Q37=NO", rec_map2.get(37, AnswerRecord([37],"")).answer, "NO")
+    recs3 = {r.question_numbers[0]: r for r in parse_answer_key_text(raw_p126)}
+    check("p126 Q1=FALSE (TFNG split-line)", recs3.get(1, AnswerRecord([1], "")).answer, "FALSE")
+    check("p126 Q7=NOT GIVEN (split-line)", recs3.get(7, AnswerRecord([7], "")).answer, "NOT GIVEN")
+    check("p126 Q9=wool (tilde+space, split-line)", recs3.get(9, AnswerRecord([9], "")).answer, "wool")
+    check("p126 Q14=minerals (split-line word)", recs3.get(14, AnswerRecord([14], "")).answer, "minerals")
+    check("p126 Q35=YES (Y/N/NG split-line)", recs3.get(35, AnswerRecord([35], "")).answer, "YES")
+    check("p126 Q36=NOT GIVEN (Y/N/NG split-line)", recs3.get(36, AnswerRecord([36], "")).answer, "NOT GIVEN")
+    check("p126 Q37=NO", recs3.get(37, AnswerRecord([37], "")).answer, "NO")
 
     print("\n=== Results ===")
     if failures:
         for f in failures:
             print(f)
-        print(f"\n{len(failures)} test(s) FAILED")
+        print(f"\n{len(failures)} FAILED")
+        return False
     else:
         print("All tests passed.")
-    return len(failures) == 0
+        return True
 
 
 if __name__ == "__main__":
