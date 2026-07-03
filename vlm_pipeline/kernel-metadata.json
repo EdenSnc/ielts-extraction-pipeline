@@ -1,0 +1,15 @@
+{
+ "id": "senoucielamine/ielts-13-vlm-interpretation",
+ "title": "IELTS 13 VLM Interpretation",
+ "code_file": "vlm_interpretation.ipynb",
+ "language": "python",
+ "kernel_type": "notebook",
+ "is_private": "true",
+ "enable_gpu": "true",
+ "enable_internet": "true",
+ "dataset_sources": [
+  "senoucielamine/ielts-13-crops-v1"
+ ],
+ "competition_sources": [],
+ "kernel_sources": []
+}
