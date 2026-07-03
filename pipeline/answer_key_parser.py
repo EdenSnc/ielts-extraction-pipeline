@@ -1,5 +1,5 @@
 """
-answer_key_parser.py  — v2
+answer_key_parser.py  — v3
 Parse IELTS answer key pages into structured records.
 
 KEY DESIGN DECISION (discovered from real OCR evidence, 2026-07-03):
@@ -31,8 +31,17 @@ Formats handled (all observed in 13.PDF answer key pages 119-126):
 """
 
 import re
+import sys
+import os
 from dataclasses import dataclass, field
 from typing import Optional
+
+# Import expander — works whether run from pipeline/ or project root
+try:
+    from answer_key_expander import expand_answer_variants
+except ImportError:
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+    from answer_key_expander import expand_answer_variants
 
 
 # ---------------------------------------------------------------------------
@@ -42,10 +51,35 @@ from typing import Optional
 @dataclass
 class AnswerRecord:
     question_numbers: list[int]
-    answer: str
-    alternatives: list[str] = field(default_factory=list)
+    answer: str                          # canonical (first) form
+    alternatives: list[str] = field(default_factory=list)  # slash-split alternatives from raw
+    variants: list[str] = field(default_factory=list)      # fully-expanded acceptable strings
+    needs_review: bool = False           # True when expander flagged ambiguity or exclusion
+    review_reason: Optional[str] = None # why needs_review is True
     order_free: bool = False
-    raw: str = ""          # the raw line(s) for audit
+    raw: str = ""                        # the raw line(s) for audit
+
+
+def _expand(answer: str, alternatives: list[str]) -> tuple[list[str], bool, Optional[str]]:
+    """Run expand_answer_variants on the canonical answer and each slash-alternative,
+    union all variant lists, and propagate needs_review if any segment flagged it."""
+    all_variants: list[str] = []
+    needs_review = False
+    review_reason: Optional[str] = None
+    for candidate in [answer] + alternatives:
+        result = expand_answer_variants(candidate)
+        all_variants.extend(result["variants"])
+        if result["needs_review"]:
+            needs_review = True
+            review_reason = result["review_reason"]
+    # De-dupe, preserve order
+    seen: set[str] = set()
+    deduped = []
+    for v in all_variants:
+        if v.lower() not in seen:
+            seen.add(v.lower())
+            deduped.append(v)
+    return deduped, needs_review, review_reason
 
 
 # ---------------------------------------------------------------------------
@@ -121,13 +155,90 @@ def _parse_payload(raw: str, order_free: bool = False) -> tuple[str, list[str]]:
 
 
 # ---------------------------------------------------------------------------
-# Main parser
+# Spatial (coordinate-based) entry point  — preferred over parse_answer_key_text
+# when a live PyMuPDF Page object is available.
+# ---------------------------------------------------------------------------
+
+def _blocks_to_column_text(page) -> str:
+    """
+    Extract text from a two-column answer-key page using bounding-box coordinates.
+
+    Strategy:
+    1. Call page.get_text("blocks") → each block is (x0,y0,x1,y1, text, block_no, block_type).
+    2. Filter to text blocks (block_type == 0) with non-empty text.
+    3. Bisect by page x-midpoint into left column and right column.
+    4. Sort each column top-to-bottom by y0.
+    5. Concatenate left column first, then right column, separated by a clear
+       section break that _SKIP_RE will eat (so the columns don't bleed into
+       each other during parsing).
+
+    This produces a single string where:
+    - Q1 appears before Q2, Q2 before Q3, etc. within each column
+    - Left-column answers (Q1-Q20 typically) appear before right-column (Q21-Q40)
+    - No cross-column interleaving
+    """
+    page_width = page.rect.width
+    x_mid = page_width / 2.0
+
+    blocks = page.get_text("blocks")  # type: ignore[attr-defined]
+    left_blocks: list[tuple] = []
+    right_blocks: list[tuple] = []
+
+    for block in blocks:
+        x0, y0, x1, y1, text, *_ = block
+        block_type = block[6] if len(block) > 6 else 0
+        if block_type != 0:  # skip image blocks
+            continue
+        text = text.strip()
+        if not text:
+            continue
+        # Classify by block centre x
+        block_cx = (x0 + x1) / 2.0
+        if block_cx < x_mid:
+            left_blocks.append((y0, text))
+        else:
+            right_blocks.append((y0, text))
+
+    left_blocks.sort(key=lambda t: t[0])
+    right_blocks.sort(key=lambda t: t[0])
+
+    left_text = "\n".join(t for _, t in left_blocks)
+    right_text = "\n".join(t for _, t in right_blocks)
+
+    # The sentinel between columns will be caught by _SKIP_RE as boilerplate
+    return left_text + "\nListening and Reading Answer Keys\n" + right_text
+
+
+def parse_answer_key_page(page) -> list[AnswerRecord]:
+    """
+    Parse an IELTS answer-key page given a live PyMuPDF Page object.
+
+    Preferred over parse_answer_key_text() when the page is available, because
+    it uses coordinate-based block extraction to eliminate the two-column reflow
+    problem that get_text() (reading order) produces.
+
+    Falls back to get_text() if get_text("blocks") returns nothing.
+    """
+    try:
+        reconstructed = _blocks_to_column_text(page)
+        if reconstructed.strip():
+            return parse_answer_key_text(reconstructed)
+    except Exception:
+        pass
+    # Fallback: plain text stream (may have interleaving, but still usable)
+    return parse_answer_key_text(page.get_text())
+
+
+# ---------------------------------------------------------------------------
+# Main parser (text-stream version — used by tests and callers without a Page)
 # ---------------------------------------------------------------------------
 
 def parse_answer_key_text(raw_text: str) -> list[AnswerRecord]:
     """
     Parse raw PyMuPDF get_text() output from an IELTS answer key page.
     Returns list of AnswerRecord, unsorted.
+
+    Prefer parse_answer_key_page() when a live Page object is available.
     """
     lines = [ln.strip() for ln in raw_text.splitlines()]
     records: list[AnswerRecord] = []
@@ -164,10 +275,15 @@ def parse_answer_key_text(raw_text: str) -> list[AnswerRecord]:
 
             if len(answers) == 2:
                 for qnum, ans in zip([q1, q2], answers):
+                    _answer, _alts = _parse_payload(ans, order_free)[0], _parse_payload(ans, order_free)[1]
+                    _variants, _nr, _rr = _expand(_answer, _alts)
                     records.append(AnswerRecord(
                         question_numbers=[qnum],
-                        answer=_parse_payload(ans, order_free)[0],
-                        alternatives=_parse_payload(ans, order_free)[1],
+                        answer=_answer,
+                        alternatives=_alts,
+                        variants=_variants,
+                        needs_review=_nr,
+                        review_reason=_rr,
                         order_free=order_free,
                         raw=line
                     ))
@@ -186,10 +302,14 @@ def parse_answer_key_text(raw_text: str) -> list[AnswerRecord]:
                 continue
             answer, alts = _parse_payload(payload)
             if answer:
+                variants, nr, rr = _expand(answer, alts)
                 records.append(AnswerRecord(
                     question_numbers=[qnum],
                     answer=answer,
                     alternatives=alts,
+                    variants=variants,
+                    needs_review=nr,
+                    review_reason=rr,
                     raw=line
                 ))
             i += 1
@@ -225,10 +345,14 @@ def parse_answer_key_text(raw_text: str) -> list[AnswerRecord]:
                 if cleaned and _ANSWER_RE.match(cleaned):
                     answer, alts = _parse_payload(cleaned)
                     if answer:
+                        variants, nr, rr = _expand(answer, alts)
                         records.append(AnswerRecord(
                             question_numbers=[qnum],
                             answer=answer,
                             alternatives=alts,
+                            variants=variants,
+                            needs_review=nr,
+                            review_reason=rr,
                             raw=f"{line} | {answer_line}"
                         ))
                 i = j

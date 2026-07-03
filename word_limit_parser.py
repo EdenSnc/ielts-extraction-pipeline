@@ -23,6 +23,8 @@ from typing import Optional, TypedDict
 class AnswerConstraint(TypedDict):
     max_words: Optional[int]   # None only for pure "A NUMBER" with no word component -> 0
     allow_numbers: bool
+    must_be_from_text: bool    # True when instruction says "from the passage/text"
+                               # -> grading must strict-match; synonyms not acceptable
     raw_instruction_text: str  # the exact matched clause, kept for auditability
 
 
@@ -34,19 +36,25 @@ _WORD_NUM = {
 
 _WORD_NUM_PATTERN = "|".join(_WORD_NUM.keys())
 
+# Detects Cambridge phrasings that restrict answers to exact passage text.
+# Synonyms are NOT acceptable when this matches.
+_FROM_TEXT_RE = re.compile(
+    r"from\s+the\s+(passage|text|article|reading|recording)",
+    re.IGNORECASE,
+)
+
 # Ordered from most specific to least specific — first match wins.
-_PATTERNS = [
-    # "NO MORE THAN {N} WORDS AND/OR A NUMBER" / "{N} WORD(S) AND/OR A NUMBER"
+# Each entry: (compiled_pattern, max_words_extractor, allow_numbers)
+# must_be_from_text is detected separately on the full instruction string.
+_PATTERNS: list[tuple] = [
+    # "NO MORE THAN {N} WORDS AND/OR A NUMBER"
     (
         re.compile(
             rf"(no more than\s+)?({_WORD_NUM_PATTERN})\s+words?\s+and\s*/?\s*or\s+a\s+number",
             re.IGNORECASE,
         ),
-        lambda m: AnswerConstraint(
-            max_words=_WORD_NUM[m.group(2).lower()],
-            allow_numbers=True,
-            raw_instruction_text=m.group(0),
-        ),
+        lambda m: _WORD_NUM[m.group(2).lower()],  # max_words
+        True,                                       # allow_numbers
     ),
     # "NO MORE THAN {N} WORDS" (no number clause)
     (
@@ -54,25 +62,20 @@ _PATTERNS = [
             rf"no more than\s+({_WORD_NUM_PATTERN})\s+words?\b",
             re.IGNORECASE,
         ),
-        lambda m: AnswerConstraint(
-            max_words=_WORD_NUM[m.group(1).lower()],
-            allow_numbers=False,
-            raw_instruction_text=m.group(0),
-        ),
+        lambda m: _WORD_NUM[m.group(1).lower()],
+        False,
     ),
     # "ONE WORD ONLY"
     (
         re.compile(r"one\s+word\s+only", re.IGNORECASE),
-        lambda m: AnswerConstraint(
-            max_words=1, allow_numbers=False, raw_instruction_text=m.group(0)
-        ),
+        lambda m: 1,
+        False,
     ),
     # standalone "A NUMBER" — no word component at all
     (
         re.compile(r"\ba\s+number\b(?!\s*of\s+word)", re.IGNORECASE),
-        lambda m: AnswerConstraint(
-            max_words=0, allow_numbers=True, raw_instruction_text=m.group(0)
-        ),
+        lambda m: 0,
+        True,
     ),
 ]
 
@@ -83,11 +86,21 @@ def parse_word_limit(instruction_text: str) -> Optional[AnswerConstraint]:
     Returns None if no recognizable pattern is found — caller should treat
     that as a review-flag trigger for completion-type questions, not a
     silent "no constraint" result.
+
+    must_be_from_text is True when the instruction contains a phrase like
+    "from the passage / text / recording" — grading downstream must
+    strict-match; synonyms are not acceptable.
     """
-    for pattern, builder in _PATTERNS:
+    must_be_from_text = bool(_FROM_TEXT_RE.search(instruction_text))
+    for pattern, max_words_fn, allow_numbers in _PATTERNS:
         match = pattern.search(instruction_text)
         if match:
-            return builder(match)
+            return AnswerConstraint(
+                max_words=max_words_fn(match),
+                allow_numbers=allow_numbers,
+                must_be_from_text=must_be_from_text,
+                raw_instruction_text=match.group(0),
+            )
     return None
 
 
@@ -104,26 +117,42 @@ def parse_min_word_count(instruction_text: str) -> Optional[int]:
 
 
 if __name__ == "__main__":
-    # Smoke-test cases — REPLACE/EXTEND with real instruction text pulled
-    # from 13.PDF before trusting this against the actual corpus. These are
-    # illustrative of the canonical phrase set, not a substitute for testing
-    # against real OCR output.
+    # Tests against canonical Cambridge phrasings.
+    # must_be_from_text column added — verify it fires only when expected.
     test_cases = [
+        # (instruction_text, expected_max_words, expected_allow_numbers, expected_must_be_from_text)
         ("Choose NO MORE THAN TWO WORDS from the passage for each answer.",
-         {"max_words": 2, "allow_numbers": False}),
-        ("Write ONE WORD ONLY.",
-         {"max_words": 1, "allow_numbers": False}),
+         2, False, True),
+        ("Write ONE WORD ONLY from the text.",
+         1, False, True),
         ("Use NO MORE THAN THREE WORDS AND/OR A NUMBER.",
-         {"max_words": 3, "allow_numbers": True}),
+         3, True, False),
         ("Write A NUMBER for each answer.",
-         {"max_words": 0, "allow_numbers": True}),
-        ("Choose the correct letter, A, B, C or D.",  # multiple choice — no match expected
-         None),
+         0, True, False),
+        ("Choose ONE WORD ONLY.",
+         1, False, False),
+        ("Choose the correct letter, A, B, C or D.",  # MC — no match
+         None, None, None),
     ]
-    for text, expected in test_cases:
+    all_ok = True
+    for text, exp_mw, exp_an, exp_mft in test_cases:
         result = parse_word_limit(text)
-        status = "OK" if (result is None) == (expected is None) and (
-            expected is None or (result["max_words"] == expected["max_words"]
-                                  and result["allow_numbers"] == expected["allow_numbers"])
-        ) else "MISMATCH"
-        print(f"[{status}] {text!r} -> {result}")
+        if exp_mw is None:
+            ok = result is None
+        else:
+            ok = (
+                result is not None
+                and result["max_words"] == exp_mw
+                and result["allow_numbers"] == exp_an
+                and result["must_be_from_text"] == exp_mft
+            )
+        status = "OK" if ok else "MISMATCH"
+        if not ok:
+            all_ok = False
+        print(f"[{status}] {text!r}")
+        if result is not None:
+            print(f"       max_words={result['max_words']} allow_numbers={result['allow_numbers']} "
+                  f"must_be_from_text={result['must_be_from_text']}")
+    print()
+    print("All tests passed." if all_ok else "FAILURES above — fix before proceeding.")
+
