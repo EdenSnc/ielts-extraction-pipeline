@@ -1,0 +1,189 @@
+[
+  {
+    "page": 15,
+    "label": "figure",
+    "asset_type": "flowchart",
+    "box": [
+      270.1876525878906,
+      726.4883422851562,
+      1208.2564697265625,
+      1564.127685546875
+    ],
+    "alt_text": "Title: Experiment to Investigate the Effect of Seed Size on Plant Growth\n\nThis flowchart outlines a step-by-step process for conducting an experiment to investigate the effect of seed size on plant growth. The process is divided into several stages, each with a corresponding numbered box and an arrow indicating the next step in the sequence.\n\n1. **Select seeds of different sizes and shapes.**\n   - This step involves selecting seeds of various sizes and shapes to ensure a diverse sample for the experiment.\n\n2. **Measure and record the size and shape of each seed.**\n   - This step involves measuring the size and shape of each seed to ensure consistency and accuracy in the experiment.\n\n3. **Decide on the type of seed to be used.**\n   - This step involves selecting a specific type of seed based on the experiment's objectives and the desired outcome.\n\n4. **Use a different type of seed for each seed and label it.**\n   - This step involves using different types of seeds for each seed and labeling them accordingly to track the results.\n\n5. **After about 3 weeks, record the plant's growth.**\n   - This step involves monitoring the growth of the plants after a specified period (3 weeks) to observe any differences in growth based on seed size.\n\n6. **Investigate the findings.**\n   - This final step involves analyzing the results to determine if there is a significant difference in plant growth based on seed size.\n\nOverall, this flowchart provides a clear and structured approach to conducting an experiment to investigate the impact of seed size on plant growth.",
+    "structured_data": {
+      "steps": [
+        {
+          "id": "step_1",
+          "label": "Select seeds of different sizes and shapes.",
+          "next": [
+            "step_2"
+          ]
+        }
+      ]
+    },
+    "crop_filename": "page_15_figure_0.png"
+  },
+  {
+    "page": 19,
+    "label": "table",
+    "asset_type": "table",
+    "box": [
+      138.01707458496094,
+      498.6162414550781,
+      1342.4981689453125,
+      1316.4681396484375
+    ],
+    "alt_text": "Certainly! Below is a detailed description of the image:\n\n---\n\n**Title:**\nDatabase of Tourism Services\n\n**Section of Website:**\n- Database of tourism services\n\n**Comments:**\n- Easy for tourism-related businesses to get on the list\n- Allowed businesses to 1\n- Information regularly\n- Provided a country-wide evaluation of businesses, including their impact on the 2\n\n**Section of Website:**\n- Special features on local topics\n\n**Comments:**\n- e.g. an interview with a former sports 3\n- and an interactive tour of various locations used in 4\n\n**Section of Website:**\n- Information on driving routes\n\n**Comments:**\n- Varied depending on the 5\n\n**Section of Website:**\n- Travel Planner\n\n**Comments:**\n- Included a map showing selected places, details of public transport and local 6\n\n**Section of Website:**\n- 'Your Words'\n\n**Comments:**\n- Travellers could send a link to their 7\n\n---\n\nThis image appears to be a table summarizing various sections of a website related to tourism. Each section is labeled with a title and a comment section that provides additional details about the content or purpose of that section. The table is organized into three main categories: Database of Tourism Services, Special Features on Local Topics, and Travel Planner. Each section is further broken down into subcategories, providing more specific information about what each section entails.",
+    "structured_data": [
+      {
+        "columns": [
+          "Section of website",
+          "Comments"
+        ],
+        "rows": [
+          {
+            "Section of website": "Database of tourism services",
+            "Comments": "easy for tourism-related businesses to get on the list\nallowed businesses to 1\ninformation regularly\nprovided a country-wide evaluation of businesses, including their impact on the 2"
+          },
+          {
+            "Section of website": "Special features on local topics",
+            "Comments": "e.g. an interview with a former sports 3 , and an interactive tour of various locations used in 4"
+          },
+          {
+            "Section of website": "Information on driving routes",
+            "Comments": "varied depending on the 5"
+          },
+          {
+            "Section of website": "Travel Planner",
+            "Comments": "included a map showing selected places, details of public transport and local 6"
+          },
+          {
+            "Section of website": "'Your Words'",
+            "Comments": "travellers could send a link to their 7"
+          }
+        ]
+      }
+    ],
+    "crop_filename": "page_19_table_0.png"
+  },
+  {
+    "page": 30,
+    "label": "figure",
+    "asset_type": "map",
+    "box": [
+      218.7327423095703,
+      731.9057006835938,
+      1188.171875,
+      1848.901123046875
+    ],
+    "alt_text": "**Alt Text Description:**\n\n**Title: City Hospital 2007**\n\n- **Map Title:** City Hospital 2007\n- **Location:** Ring Road\n- **Description:** The map shows the layout of the City Hospital in 2007. The hospital is located at the center of the map, with Ring Road and City Road intersecting at the hospital's entrance.\n- **Key:** \n  - **Ring Road:** The main road that runs around the hospital.\n  - **City Road:** The secondary road that runs parallel to the hospital.\n  - **Hospital Road:** A secondary road that leads to the hospital.\n  - **Bus Stop:** A bus stop is marked on the map, indicating the presence of public transportation.\n- **Parking:** \n  - **Staff Car Park:** A designated area for staff cars.\n  - **Public Car Park:** A designated area for public cars.\n\n**Title: City Hospital 2010**\n\n- **Map Title:** City Hospital 2010\n- **Location:** Ring Road\n- **Description:** The map shows the layout of the City Hospital in 2010. The hospital is located at the center of the map, with Ring Road and City Road intersecting at the hospital's entrance.\n- **Key:** \n  - **Ring Road:** The main road that runs around the hospital.\n  - **City Road:** The secondary road that runs parallel to the hospital.\n  - **Hospital Road:** A secondary road that leads to the hospital.\n  - **Bus Stop:** A bus stop is marked on the map, indicating the presence of public transportation.\n- **Parking:** \n  - **Staff Car Park:** A designated area for staff cars.\n  - **Public Car Park:** A designated area for public cars.\n\n**Alt Text Description:**\n\n**Title: City Hospital 2007**\n\n- **Map Title:** City Hospital 2007\n- **Location:** Ring Road\n- **Description:** The map shows the layout of the City Hospital in 2007. The hospital is located at the center of the map, with Ring Road and City Road intersecting at the hospital's entrance.\n- **Key:** \n  - **Ring Road:** The main road that runs around the hospital.\n  - **City Road:** The secondary road that runs parallel to the hospital.\n  - **Hospital Road:** A secondary road that leads to the hospital.\n  - **Bus Stop:** A bus stop",
+    "structured_data": {
+      "labels": [
+        {
+          "text": "City Hospital 2007",
+          "approx_location": "Top-Left | Center | Bottom-Right"
+        }
+      ]
+    },
+    "crop_filename": "page_30_figure_0.png"
+  },
+  {
+    "page": 52,
+    "label": "figure",
+    "asset_type": "bar_chart",
+    "box": [
+      199.61935424804688,
+      820.8956909179688,
+      1113.1727294921875,
+      1724.2005615234375
+    ],
+    "alt_text": "The image is a bar chart that illustrates the percentage of households in different types of accommodation over a series of years. The x-axis represents the years, ranging from 1918 to 2011, while the y-axis represents the percentage of households, ranging from 0% to 90%.\n\nThe chart is divided into two categories:\n1. Households in owned accommodation (represented by light gray bars).\n2. Households in rented accommodation (represented by dark gray bars).\n\nHere are the key observations from the chart:\n\n- In 1918, the percentage of households in owned accommodation was approximately 20%, while the percentage of households in rented accommodation was around 80%.\n- By 1939, the percentage of households in owned accommodation had increased to around 30%, while the percentage of households in rented accommodation had decreased to around 70%.\n- Between 1939 and 1953, there was a slight decrease in the percentage of households in owned accommodation (from 30% to 25%), while the percentage of households in rented accommodation remained relatively stable (around 70%).\n- From 1953 to 1971, the percentage of households in owned accommodation increased slightly (from 25% to 30%), while the percentage of households in rented accommodation remained relatively stable (around 70%).\n- Between 1971 and 1981, the percentage of households in owned accommodation decreased slightly (from 30% to 25%), while the percentage of households in rented accommodation remained relatively stable (around 70%).\n- From 1981 to 2001, the percentage of households in owned accommodation remained relatively stable (around 25%), while the percentage of households in rented accommodation decreased slightly (from 70% to 65%).\n- In 2001, the percentage of households in owned accommodation was around 25%, while the percentage of households in rented accommodation was around 65%.\n\nOverall, the chart shows a general trend of decreasing percentages of households in owned accommodation and increasing percentages of households in rented accommodation over the years.",
+    "structured_data": {
+      "series": [
+        {
+          "label": "households in owned accommodation",
+          "points": [
+            {
+              "x": "1918",
+              "y": 75
+            },
+            {
+              "x": "1939",
+              "y": 65
+            },
+            {
+              "x": "1953",
+              "y": 50
+            },
+            {
+              "x": "1961",
+              "y": 45
+            },
+            {
+              "x": "1971",
+              "y": 40
+            },
+            {
+              "x": "1981",
+              "y": 35
+            },
+            {
+              "x": "1991",
+              "y": 30
+            },
+            {
+              "x": "2001",
+              "y": 25
+            },
+            {
+              "x": "2011",
+              "y": 20
+            }
+          ]
+        },
+        {
+          "label": "households in rented accommodation",
+          "points": [
+            {
+              "x": "1918",
+              "y": 75
+            },
+            {
+              "x": "1939",
+              "y": 65
+            },
+            {
+              "x": "1953",
+              "y": 50
+            },
+            {
+              "x": "1961",
+              "y": 45
+            },
+            {
+              "x": "1971",
+              "y": 40
+            },
+            {
+              "x": "1981",
+              "y": 35
+            },
+            {
+              "x": "1991",
+              "y": 30
+            },
+            {
+              "x": "2001",
+              "y": 25
+            },
+            {
+              "x": "2011",
+              "y": 20
+            }
+          ]
+        }
+      ]
+    },
+    "crop_filename": "page_52_figure_0.png"
+  }
+]
