@@ -26,6 +26,24 @@ class ExpansionResult(TypedDict):
     review_reason: str | None
 
 
+def has_exclusion_pattern(line: str) -> bool:
+    """
+    Check if an answer-key line contains an exclusion pattern.
+    
+    Returns True if the line contains 'not' acting as a negative constraint
+    immediately after an opening parenthesis. Catches:
+    - (not     (with space after 'not')
+    - (not)    (immediately closed)
+    - (not-    (with hyphen after 'not')
+    
+    Ignores false positives like (notation) and (nothing).
+    """
+    # Pattern: opening paren, followed by 'not', followed by space, closing paren, or hyphen
+    # This ensures 'not' is immediately after the opening paren
+    pattern = r"\(not(\s|\)|-)"
+    return bool(re.search(pattern, line, re.IGNORECASE))
+
+
 def _expand_single_segment(segment: str) -> list[str]:
     """Expand one slash-delimited segment's parenthetical optionals."""
     segment = segment.strip()
@@ -50,7 +68,7 @@ def expand_answer_variants(raw: str) -> ExpansionResult:
     raw = raw.strip()
 
     # Exclusion notation e.g. "bridge (not wooden bridge)" — don't guess, flag it.
-    if re.search(r"\(not\s+", raw, re.IGNORECASE):
+    if has_exclusion_pattern(raw):
         return ExpansionResult(
             variants=[raw], needs_review=True,
             review_reason="exclusion notation '(not ...)' — needs human parsing, not auto-expanded"
